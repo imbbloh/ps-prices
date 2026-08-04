@@ -22,12 +22,45 @@ const EXPECT = {
 };
 
 const cache = new Map();               // title(lower) -> { ts, data }
+const inflight = new Map();            // title(lower) -> Promise (dedupe concurrent lookups)
 const TTL = 10 * 60 * 1000;            // 10 minutes
+const MAX_CACHE = 200;                 // bound memory on the free tier
+const CONCURRENCY = 6;                 // parallel store requests (avoids rate-limiting)
+const TIMEOUT = 12000;                 // per-request timeout, ms
 
-async function getText(url) {
-  const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en' } });
-  if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + url);
-  return r.text();
+// Run fn over items with at most n in flight at once. Results keep input order.
+async function pool(items, n, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, worker));
+  return out;
+}
+
+// Fetch with timeout + bounded retries. Retries only transient failures
+// (network error, 429, 5xx); a 404 means "not in this store", so return null fast.
+async function getText(url, tries = 2) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url, {
+        headers: { 'User-Agent': UA, 'Accept-Language': 'en' },
+        signal: AbortSignal.timeout(TIMEOUT)
+      });
+      if (r.status === 404 || r.status === 410) return null;
+      if (r.status === 429 || r.status >= 500) throw new Error('HTTP ' + r.status);
+      if (!r.ok) return null;
+      return await r.text();
+    } catch (e) {
+      if (i === tries - 1) return null;
+      await new Promise(res => setTimeout(res, 400 * (i + 1)));   // small backoff
+    }
+  }
+  return null;
 }
 
 function parseNum(raw) {
@@ -69,55 +102,173 @@ function grab(h) {
   return { price, cur, name };
 }
 
-async function region(pid, cid, loc) {
-  const urls = ['/' + loc + '/product/' + pid];
-  if (cid) urls.push('/' + loc + '/concept/' + cid);
-  for (const u of urls) {
-    for (let i = 0; i < 2; i++) {
-      try {
-        const r = grab(await getText(BASE + u));
-        if (r.price != null) return r;
-      } catch (e) {}
-    }
+// All product IDs on a page, in document order, deduped.
+function productIds(h) {
+  const out = [], seen = new Set(), re = /\/product\/([A-Z0-9][\w-]{6,})/gi;
+  let m;
+  while ((m = re.exec(h))) {
+    const id = m[1];
+    if (!seen.has(id)) { seen.add(id); out.push(id); }
   }
-  return { price: null, cur: null, name: null };
+  return out;
 }
 
-async function lookup(title) {
-  const key = title.toLowerCase().trim();
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.ts < TTL) return hit.data;
+// Concept IDs, in document order, deduped. Read from both the embedded JSON
+// key and any /concept/<id> link on the page — search results often link
+// straight to the concept even when the JSON key is absent or renamed.
+function conceptIds(h) {
+  const out = [], seen = new Set();
+  for (const re of [/"conceptId":"?(\d+)"?/g, /\/concept\/(\d+)/g]) {
+    let m;
+    while ((m = re.exec(h))) {
+      if (!seen.has(m[1])) { seen.add(m[1]); out.push(m[1]); }
+    }
+  }
+  return out;
+}
 
-  // title -> productId (and conceptId) via store search
-  let html = '';
-  for (let i = 0; i < 3 && !html; i++) {
-    try { html = await getText(BASE + '/en-us/search/' + encodeURIComponent(title)); } catch (e) {}
+function conceptId(h) {
+  return conceptIds(h)[0] || null;
+}
+
+// Accept a pasted store URL or a bare concept ID instead of a title, so a
+// known-good concept (e.g. .../en-in/concept/10014719) skips search entirely.
+function parseQuery(q) {
+  const s = ('' + q).trim();
+  const cm = s.match(/\/concept\/(\d+)/);
+  if (cm) return { conceptId: cm[1], productId: null, title: null };
+  const pm = s.match(/\/product\/([A-Z0-9][\w-]{6,})/i);
+  if (pm) return { conceptId: null, productId: pm[1], title: null };
+  if (/^\d{5,}$/.test(s)) return { conceptId: s, productId: null, title: null };
+  return { conceptId: null, productId: null, title: s };
+}
+
+// A page only counts as a hit if it actually carries a price.
+async function priceAt(path) {
+  const h = await getText(BASE + path);
+  if (!h) return null;
+  const r = grab(h);
+  return r.price != null ? r : null;
+}
+
+// 3-tier resolve for one region, cheapest-and-most-reliable first:
+//   1. the conceptId — global, so the same ID works in every storefront
+//   2. the productId found via the global (en-us) search — often region-specific
+//   3. that region's own store search, to find its local SKU
+// Product IDs vary per region on region-locked titles (Beast of Reincarnation
+// is ...PPSA29343... in the US but ...PPSA29344... in India), which is why the
+// concept goes first and per-region search is the last resort.
+async function region(pid, cid, loc, title) {
+  if (cid) {
+    const r = await priceAt('/' + loc + '/concept/' + cid);
+    if (r) return { ...r, via: 'concept', productId: null };
   }
-  const pid = (html.match(/\/product\/([A-Z0-9][\w-]{6,})/i) || [])[1];
-  if (!pid) return { error: 'No match for "' + title + '"' };
-  let cid = (html.match(/"conceptId":"?(\d+)"?/) || [])[1];
-  if (!cid) {
-    try {
-      const p = await getText(BASE + '/en-us/product/' + pid);
-      cid = (p.match(/"conceptId":"?(\d+)"?/) || [])[1];
-    } catch (e) {}
+  if (pid) {
+    const r = await priceAt('/' + loc + '/product/' + pid);
+    if (r) return { ...r, via: 'product', productId: pid };
   }
+  if (title) {
+    const h = await getText(BASE + '/' + loc + '/search/' + encodeURIComponent(title));
+    if (h) {
+      for (const lid of productIds(h).slice(0, 3)) {
+        if (lid === pid) continue;                      // already tried in tier 1
+        const r = await priceAt('/' + loc + '/product/' + lid);
+        if (r) return { ...r, via: 'search', productId: lid };
+      }
+    }
+  }
+  return { price: null, cur: null, name: null, via: null, productId: null };
+}
+
+async function lookup(query) {
+  const started = Date.now();
+  const q = parseQuery(query);
+  let pid = q.productId, cid = q.conceptId, title = q.title;
+
+  if (!pid && !cid) {
+    // title -> conceptId / productId via the global store search
+    const html = await getText(BASE + '/en-us/search/' + encodeURIComponent(title), 3);
+    const candidates = html ? productIds(html) : [];
+    pid = candidates[0] || null;
+    cid = html ? conceptId(html) : null;
+
+    // A concept ID resolves every region at once, so it is worth a couple of
+    // extra page loads to find one.
+    for (const c of candidates.slice(0, 2)) {
+      if (cid) break;
+      const p = await getText(BASE + '/en-us/product/' + c);
+      if (p) cid = conceptId(p);
+    }
+  } else if (pid && !cid) {
+    const p = await getText(BASE + '/en-us/product/' + pid);
+    if (p) cid = conceptId(p);
+  }
+
+  // With no productId AND no conceptId there is nothing to resolve against,
+  // and per-region search alone is too loose to trust.
+  if (!pid && !cid) return { error: 'No match for "' + query + '"' };
+
+  // Given a bare URL/ID we have no title yet; recover one from the concept
+  // page so the per-region search tier still has something to search for.
+  if (!title && cid) {
+    const p = await getText(BASE + '/en-us/concept/' + cid);
+    if (p) title = grab(p).name || null;
+  }
+
+  const keys = Object.keys(LOCALES);
+  const found = await pool(keys, CONCURRENCY, rk => region(pid, cid, LOCALES[rk], title));
 
   let gameName = null;
-  const results = await Promise.all(Object.keys(LOCALES).map(async (rk) => {
-    const r = await region(pid, cid, LOCALES[rk]);
+  const results = keys.map((rk, i) => {
+    const r = found[i];
     if (r.name && !gameName) gameName = r.name;
     return {
       region: rk,
       currency: r.cur,
       price: r.price,
-      redirected: r.cur != null && r.cur !== EXPECT[rk]
+      redirected: r.cur != null && r.cur !== EXPECT[rk],
+      via: r.via,                    // 'product' | 'concept' | 'search' | null
+      productId: r.productId
     };
-  }));
+  });
 
-  const data = { title: gameName || title, productId: pid, conceptId: cid || null, results };
-  cache.set(key, { ts: Date.now(), data });
-  return data;
+  return {
+    title: gameName || title || query,
+    productId: pid,
+    conceptId: cid || null,
+    priced: results.filter(r => r.price != null).length,
+    total: results.length,
+    elapsedMs: Date.now() - started,
+    results
+  };
+}
+
+// Cached + de-duplicated wrapper: two users searching the same title while a
+// lookup is in flight share one set of store requests.
+function lookupCached(title) {
+  const key = title.toLowerCase().trim();
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.ts < TTL) return Promise.resolve({ ...hit.data, cached: true });
+  if (inflight.has(key)) return inflight.get(key);
+
+  const p = lookup(title)
+    .then(data => {
+      if (!data.error && data.priced > 0) {
+        cache.set(key, { ts: Date.now(), data });
+        if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
+      }
+      return data;
+    })
+    .finally(() => inflight.delete(key));
+
+  inflight.set(key, p);
+  return p;
+}
+
+function json(res, code, body) {
+  res.statusCode = code;
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify(body));
 }
 
 const server = http.createServer(async (req, res) => {
@@ -126,21 +277,22 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
 
   const url = new URL(req.url, 'http://localhost');
+
+  // Cheap endpoint the frontend pings on page load to wake the free-tier dyno.
+  if (url.pathname === '/health') return json(res, 200, { ok: true, uptime: Math.round(process.uptime()) });
+
   if (url.pathname === '/prices') {
     const title = (url.searchParams.get('title') || '').trim();
-    if (!title) { res.statusCode = 400; res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify({ error: 'Missing ?title=' })); }
+    if (!title) return json(res, 400, { error: 'Missing ?title=' });
+    if (title.length > 120) return json(res, 400, { error: 'Title too long' });
     try {
-      const data = await lookup(title);
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify(data));
+      json(res, 200, await lookupCached(title));
     } catch (e) {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ error: e.message }));
+      json(res, 500, { error: e.message });
     }
     return;
   }
-  // health / root
+
   res.setHeader('Content-Type', 'text/plain');
   res.end('PS-SGD backend is running. Try /prices?title=007%20First%20Light');
 });
@@ -150,4 +302,7 @@ if (require.main === module) {
   server.listen(PORT, () => console.log('PS-SGD backend on :' + PORT));
 }
 
-module.exports = { parseNum, grab, region, lookup };
+module.exports = {
+  parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
+  parseQuery, getText, priceAt, LOCALES, EXPECT, BASE
+};

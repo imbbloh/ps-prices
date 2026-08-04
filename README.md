@@ -28,8 +28,47 @@ Browser ──► GitHub Pages (index.html) ──► Render (server.js) ──�
 5. Test it: open `https://YOUR-SERVICE.onrender.com/prices?title=007%20First%20Light` —
    you should see JSON with a `results` array.
 
+Endpoints:
+
+| Path | Purpose |
+| --- | --- |
+| `/prices?title=...` | All-region prices as JSON |
+| `/health` | Cheap liveness ping — the frontend calls this on page load to start waking the free-tier host early |
+
 > Render's free tier sleeps after inactivity, so the **first** request after idle can take
-> ~30–50 s to wake. Subsequent lookups are fast (and cached for 10 min).
+> ~30–50 s to wake. Subsequent lookups are fast (and cached for 10 min). The frontend shows a
+> spinner with a "waking up the server…" note while this happens.
+
+### How a region gets priced (3-tier fallback)
+
+Product IDs are frequently region-specific — *Beast of Reincarnation* is `…PPSA29343…` in the
+US but `…PPSA29344…` in India — so a single product ID resolves only a handful of stores
+(typically just the Americas). **Concept IDs are global**, so the same ID works in every
+storefront; that tier goes first. Each region is tried in three steps, stopping at the first
+page that actually carries a price:
+
+1. **`/{locale}/concept/{conceptId}`** — global, so one ID covers every region. Most reliable.
+2. **`/{locale}/product/{productId}`** — the ID found via the global (en-us) search; often region-specific.
+3. **`/{locale}/search/{title}`** — search that region's own store and try its local SKU.
+
+### Skipping search with a store URL
+
+A title search has to guess which store entry you meant, and a wrong guess (a DLC, a bundle, a
+regional re-listing) costs you most of your regions. `?title=` therefore also accepts a pasted
+store URL or a bare concept ID, which bypasses search entirely:
+
+```
+/prices?title=https://store.playstation.com/en-in/concept/10014719
+/prices?title=10014719
+/prices?title=https://store.playstation.com/en-us/product/UB1599-PPSA29343_00-BEAST
+```
+
+Any locale works in a pasted URL — only the ID is read from it. The same strings work in the
+web UI's search box. This is the most reliable way to price a title that search handles badly.
+
+Requests run through a concurrency pool (6 at a time) so the store doesn't rate-limit us, each
+with a 12 s timeout and one retry on transient failures (429/5xx/network). Every result reports
+which tier resolved it in its `via` field (`product` / `concept` / `search` / `null`).
 
 ## 2. Publish the frontend on GitHub Pages (~2 min)
 
@@ -40,14 +79,22 @@ Browser ──► GitHub Pages (index.html) ──► Render (server.js) ──�
 ## 3. Connect them
 
 1. Open your GitHub Pages site.
-2. Click **▸ Backend settings**, paste your Render URL (e.g. `https://ps-sgd.onrender.com`), done.
-   (It's saved in your browser.)
+2. The Backend URL is pre-filled with `https://ps-prices-api.onrender.com`. To point at a
+   different service, click **▸ Backend settings** and paste its URL (saved in your browser).
+   Change `DEFAULT_BACKEND` at the top of the `index.html` script to alter the default.
 3. Type a title → **Find prices**.
+
+The page also caches FX rates in `localStorage` for 6 h, so if `open.er-api.com` is down it
+falls back to the last known rates (flagged in the status line) — and if it has no rates at
+all it still shows every store's local price rather than an empty table.
 
 ---
 
 ## Customising
 
+- **Diagnosing missing regions:** `node debug.js "<title | store URL | conceptId>" [REGION...]`
+  prints, per region, which tier was tried and exactly how it failed — a page that never
+  loaded, a page that loaded without a price, or a region search with no product links.
 - **Regions:** edit `LOCALES` (and `EXPECT`) in `server.js`.
 - **Display currency:** the dropdown in `index.html` (add options freely; any ISO code that
   open.er-api.com supports works).
