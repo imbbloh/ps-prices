@@ -210,8 +210,9 @@ function labelledList(lines, labels) {
   for (let i = 0; i < lines.length; i++) {
     const n = norm(lines[i]);
     let v = null;
-    const m = n.match(inline);
-    if (m) v = lines[i].slice(lines[i].length - m[2].length);
+    // Take the value from the original line after its colon; slicing by the
+    // normalized length would drift whenever normalization changes it.
+    if (inline.test(n)) v = lines[i].slice(lines[i].indexOf(':') + 1).trim();
     else if (alone.test(n)) {
       for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
         if (!/:$/.test(lines[j])) { v = lines[j]; break; }   // skip a following label

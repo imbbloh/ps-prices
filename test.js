@@ -168,6 +168,32 @@ check(LU.english === true, 'languages(): unknown label falls back to a language-
 const prose = '<p>Language support may vary by region. Please check before buying.</p>';
 check(languages(prose).english === null, 'languages(): prose does not trigger the fallback');
 
+// The Brazilian store's real spec table, transcribed from the live page. The
+// labels carry trailing colons, the rows sit among unrelated spec rows, and
+// "Inglês" is 7th of 11 rather than first.
+const BR_SCREEN = 'Alemão, Chinês (simplificado), Chinês (tradicional), Coreano, Espanhol, ' +
+  'Espanhol (México), Francês (França), Inglês, Italiano, Japonês, Português (Brasil)';
+const brReal =
+  '<dl>' +
+  '<dt>Plataforma:</dt><dd>PS5</dd>' +
+  '<dt>Lançamento:</dt><dd>4/8/2026</dd>' +
+  '<dt>Distribuidora:</dt><dd>Fictions</dd>' +
+  '<dt>Gêneros:</dt><dd>Ação</dd>' +
+  '<dt>Voz:</dt><dd>Inglês, Japonês</dd>' +
+  '<dt>Idiomas da tela:</dt><dd>' + BR_SCREEN + '</dd>' +
+  '</dl>';
+const BR = languages(brReal);
+check(BR.english === true, 'languages(): real pt-br spec table -> English', '-> ' + BR.english + ' via ' + BR.source);
+check(BR.screen && BR.screen.length === 11, 'languages(): pt-br screen list is 11 entries', '-> ' + (BR.screen||[]).length);
+check(BR.screen && BR.screen[7] === 'Inglês', 'languages(): English found mid-list, not just first', '-> ' + (BR.screen||[])[7]);
+check(BR.voice && BR.voice.join(', ') === 'Inglês, Japonês', 'languages(): pt-br voice list', '-> ' + (BR.voice||[]).join(', '));
+check(BR.screen && !BR.screen.some(s => /Fictions|Ação|PS5/.test(s)), 'languages(): neighbouring spec rows do not leak in');
+
+// Same table, inline "Label: value" rather than separate elements.
+const brInline = '<p>Gêneros: Ação</p><p>Voz: Inglês, Japonês</p><p>Idiomas da tela: ' + BR_SCREEN + '</p>';
+const BRI = languages(brInline);
+check(BRI.english === true && BRI.screen.length === 11, 'languages(): pt-br inline form', '-> ' + BRI.english + '/' + BRI.screen.length);
+
 // productIds(): document order, deduped, region-specific SKUs kept distinct
 const searchHtml = [
   '<a href="/en-us/product/UB1599-PPSA29343_00-BEASTOFREINCARN">a</a>',
