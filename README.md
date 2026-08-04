@@ -179,9 +179,10 @@ all it still shows every store's local price rather than an empty table.
   labels not yet in the exclusion list — which matters, since that list only grows by being
   surprised (`ITEM` was the surprise). If a page carries no classification anywhere, only its
   first entry is used, since editions and add-ons cannot then be told apart. Among the
-  remaining game entries the table shows the one that is **cheapest to actually pay**, with the
-  other editions listed beneath it in grey (`+2 editions $69.99 · $99.99`) and the full list,
-  including each one's own strikethrough, on hover. Editions are returned per region as an
+  remaining game entries the table shows the one that is **cheapest to actually pay**, with a grey
+  line beneath giving the spread (`3 editions, up to $99.99`) and the full list, each with its
+  own strikethrough, on hover. A range rather than a list of prices: the other editions cannot
+  be compared across regions anyway, since which edition a given price belongs to is unknown. Editions are returned per region as an
   `editions` array, cheapest first. They are **not named**: a label can sit 14,000 characters
   from its price, so calling one of them "Deluxe" would be a guess — the prices are reliable,
   the mapping to edition names is not. Selection is — comparing effective prices, not list prices, so

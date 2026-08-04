@@ -152,11 +152,14 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 // backend are linked, so a bad value degrades to plain text rather than markup.
 function priceCell(x){
   const was=x.was?'<s class="was">'+x.was+'</s>':'';
-  const more=(x.eds||[]).slice(1);   // [0] is the one already shown
-  const extra=more.length
-    ? '<span class="eds" title="'+esc('All editions: '+(x.eds||[]).map(e=>
+  // A range rather than a list: it says other editions exist and how far up they
+  // go, without adding a row's worth of prices that cannot be compared across
+  // regions anyway. The full set, each with its own discount, is on hover.
+  const eds=x.eds||[];
+  const extra=eds.length>1
+    ? '<span class="eds" title="'+esc('All editions: '+eds.map(e=>
         e.local+(e.was?' (was '+e.was+(e.off?' '+e.off:'')+')':'')).join('  ·  '))+'">'
-      + '+'+more.length+' edition'+(more.length>1?'s':'')+' '+more.map(e=>e.local).join(' · ')+'</span>'
+      + eds.length+' editions, up to '+eds[eds.length-1].local+'</span>'
     : '';
   if(!x.url||!/^https:\/\/store\.playstation\.com\//.test(x.url)) return x.local+was+extra;
   return '<a class="store" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" title="Open the '+esc(x.r)+' store page">'+x.local+'</a>'+was+extra;
