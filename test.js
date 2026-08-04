@@ -133,6 +133,41 @@ check(L4.english === true && L4.voice === null, 'languages(): "Voice Chat" is no
 // Only voice data present -> fall back to it rather than reporting unknown.
 check(languages('<div>Voice: English, German</div>').english === true, 'languages(): falls back to voice list');
 
+// Localized storefronts: each store writes both the label and the language
+// names in its own language. Matching only English wording would report
+// "unknown" for 9 of the 20 regions even when the game does support English.
+const LOCALIZED = [
+  ['pt-br BR', 'Voz', 'Inglês, Japonês', 'Idiomas da tela', 'Inglês, Português (Brasil)'],
+  ['es-mx MX', 'Voz', 'Inglés, Japonés', 'Idiomas en pantalla', 'Inglés, Español (México)'],
+  ['de-de DE', 'Sprachausgabe', 'Englisch, Japanisch', 'Bildschirmsprachen', 'Englisch, Deutsch'],
+  ['pl-pl PL', 'Głos', 'Angielski, Japoński', 'Języki ekranowe', 'Angielski, Polski'],
+  ['tr-tr TR', 'Ses', 'İngilizce, Japonca', 'Ekran dilleri', 'İngilizce, Türkçe'],
+  ['ja-jp JP', '音声', '英語, 日本語', '画面表示言語', '英語, 日本語'],
+  ['ko-kr KR', '음성', '영어, 일본어', '화면 언어', '영어, 한국어'],
+  ['zh-tw TW', '語音', '英語, 日語', '螢幕語言', '英文, 繁體中文'],
+  ['uk-ua UA', 'Голос', 'Англійська, Японська', 'Мови екрана', 'Англійська, Українська']
+];
+for (const [tag, vl, vv, sl, sv] of LOCALIZED) {
+  const html = '<dl><dt>' + vl + '</dt><dd>' + vv + '</dd><dt>' + sl + '</dt><dd>' + sv + '</dd></dl>';
+  const L = languages(html);
+  check(L.english === true, 'languages(): ' + tag + ' English detected', '-> ' + L.english + ' via ' + L.source);
+}
+
+// The same localized stores must still report false when English is absent.
+const brNoEn = '<dl><dt>Voz</dt><dd>Japonês</dd><dt>Idiomas da tela</dt><dd>Japonês, Português (Brasil)</dd></dl>';
+check(languages(brNoEn).english === false, 'languages(): pt-br without English -> false');
+const jpNoEn = '<dl><dt>音声</dt><dd>日本語</dd><dt>画面表示言語</dt><dd>日本語, 韓国語</dd></dl>';
+check(languages(jpNoEn).english === false, 'languages(): ja-jp without English -> false');
+
+// Wording we do not have in the table, but clearly a language field.
+const unknownLabel = '<dl><dt>Sprachen</dt><dd>Englisch, Deutsch</dd></dl>';
+const LU = languages(unknownLabel);
+check(LU.english === true, 'languages(): unknown label falls back to a language-ish field', '-> ' + LU.source);
+
+// That fallback must not fire on prose that merely mentions a language.
+const prose = '<p>Language support may vary by region. Please check before buying.</p>';
+check(languages(prose).english === null, 'languages(): prose does not trigger the fallback');
+
 // productIds(): document order, deduped, region-specific SKUs kept distinct
 const searchHtml = [
   '<a href="/en-us/product/UB1599-PPSA29343_00-BEASTOFREINCARN">a</a>',
