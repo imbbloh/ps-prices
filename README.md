@@ -129,6 +129,12 @@ all it still shows every store's local price rather than an empty table.
   deliberately not stored: they change constantly and would rewrite every row daily, burying the
   one useful signal in the diff.
 
+  **The API geolocates by caller IP.** A GitHub runner in the UK returned the GB storefront —
+  price bands in pounds and a different game count — while the same call from a browser on the
+  en-us site returned the US one. `catalog.js` therefore pins the storefront with
+  `x-psn-store-locale-override` (`--locale`, default `en-US`) and prints the currency symbol it
+  saw, so a wrong storefront is obvious in the log rather than silently mislabelled.
+
   The persisted-query `sha256Hash` changes when the store redeploys its front end; on
   `PersistedQueryNotFound`, re-capture it from the browse page (F12 → Network → filter
   `categoryGridRetrieve`) and pass `--hash`. Apollo also rejects the call as possible CSRF

@@ -61,6 +61,10 @@ const SORT = val('--sort', null);       // e.g. a release-date sort, once its en
 const SIZE = Math.min(parseInt(val('--size', '100'), 10), 100);
 const DELAY = parseInt(val('--delay', '400'), 10);
 const OUT = val('--out', 'catalog.json');
+// Without this the API geolocates by caller IP: a GitHub runner in the UK
+// returned the GB storefront (price bands in pounds, a different game count)
+// while the same call from a browser on the en-us site returned the US one.
+const LOCALE = val('--locale', 'en-US');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function grid(offset, size = SIZE, filterBy = [], facetOptions = []) {
@@ -79,6 +83,8 @@ async function grid(offset, size = SIZE, filterBy = [], facetOptions = []) {
       // Apollo rejects requests without one of these as possible CSRF.
       'apollo-require-preflight': 'true',
       'x-apollo-operation-name': 'categoryGridRetrieve',
+      'x-psn-store-locale-override': LOCALE,
+      'Accept-Language': LOCALE + ',' + LOCALE.split('-')[0] + ';q=0.9',
       'User-Agent': UA
     },
     signal: AbortSignal.timeout(20000)
@@ -145,7 +151,10 @@ async function collect(known, added, filterBy, label) {
   const release = (facets.find(f => f.name === 'conceptReleaseDate') || {}).values || [];
   const realTotal = price.reduce((n, v) => n + v.count, 0);
 
+  const sample = (price.find(v => /[^0-9 .\-]/.test(v.displayName)) || {}).displayName || '';
+  const symbol = (sample.match(/[^\w\s.\-]/) || [''])[0];
   console.log('category  : ' + probe.localizedName + '  (' + probe.reportingName + ')');
+  console.log('locale    : ' + LOCALE + (symbol ? '   storefront prices in "' + symbol + '"' : ''));
   console.log('reported  : ' + (probe.pageInfo || {}).totalCount + '   <-- capped at ' + HARD_CAP);
   console.log('actual    : ' + realTotal + '   (summed across ' + price.length + ' price bands)');
   release.forEach(v => console.log('  ' + v.key.padEnd(18) + String(v.count).padStart(5) + '  ' + v.displayName));
