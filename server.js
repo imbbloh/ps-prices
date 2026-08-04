@@ -47,11 +47,14 @@ function loadCatalog(file) {
   try {
     const rows = JSON.parse(fs.readFileSync(file || path.join(__dirname, 'catalog.json'), 'utf8'));
     const m = new Map();
+    const names = new Map();                          // conceptId -> catalogue name
     for (const r of rows) {
       if (!r || !r.name || !r.conceptId) continue;
       const k = keyName(r.name);
       if (!m.has(k)) m.set(k, String(r.conceptId));   // first wins: rows are name-sorted
+      names.set(String(r.conceptId), r.name);
     }
+    m.names = names;
     return m.size ? m : null;
   } catch (e) { return null; }
 }
@@ -125,58 +128,103 @@ function parseNum(raw) {
   return isNaN(n) ? null : n;
 }
 
-// The store's embedded price object carries the sale price separately from the
-// original. Keys sit together in one small flat object, so read them from a
-// window around the first "basePrice" rather than trying to brace-match JSON.
-function priceBlock(h) {
-  const i = h.indexOf('"basePrice"');
-  if (i < 0) return null;
-  const w = h.slice(Math.max(0, i - 200), i + 600);
-  const pick = re => (w.match(re) || [])[1];
-  return {
-    base: pick(/"basePrice":"([^"]*)"/),
-    disc: pick(/"discountedPrice":"([^"]*)"/),
-    cur:  pick(/"currencyCode":"([A-Z]{3})"/),
-    text: pick(/"discountText":"([^"]*)"/)
-  };
+// Every embedded price object on the page, not just the first. A concept page
+// lists each edition, so taking the first meant the store's display order chose
+// the price -- which is how a Deluxe Edition price ended up shown for the base
+// game. Keys sit together in one small flat object, so read a window around
+// each "basePrice" rather than trying to brace-match JSON.
+function priceBlocks(h) {
+  const at = [];
+  const re = /"basePrice"/g;
+  let m;
+  while ((m = re.exec(h)) && at.length < 40) at.push(m.index);
+
+  return at.map((start, i) => {
+    // Each block runs from its own "basePrice" to the next one. Reading
+    // backwards would re-read the previous edition's price, which is exactly
+    // how every edition came out looking like the first one.
+    const end = Math.min(i + 1 < at.length ? at[i + 1] : h.length, start + 800);
+    const w = h.slice(start, end);
+    const before = h.slice(Math.max(0, start - 200), start);   // currency may precede
+    const pick = (r, src) => ((src || w).match(r) || [])[1];
+    return {
+      base: pick(/"basePrice":"([^"]*)"/),
+      disc: pick(/"discountedPrice":"([^"]*)"/),
+      cur:  pick(/"currencyCode":"([A-Z]{3})"/) || pick(/"currencyCode":"([A-Z]{3})"/, before),
+      text: pick(/"discountText":"([^"]*)"/)
+    };
+  });
 }
 
-// Returns the price a shopper actually pays today. When a title is discounted,
-// `price` is the sale price and `original` is what it was struck through from.
+// Of several editions, the base game is the one worth comparing across regions:
+// a Deluxe price in one region against a Standard price in another is not a
+// comparison. Zero-priced entries are skipped when anything paid exists, so a
+// free demo or trial listed alongside the game does not win -- unless the game
+// really is free, in which case zero is all there is.
+function cheapest(cands) {
+  const usable = cands.filter(c => c.price != null);
+  if (!usable.length) return null;
+  const paid = usable.filter(c => c.price > 0);
+  return (paid.length ? paid : usable).reduce((a, b) => (b.price < a.price ? b : a));
+}
+
+// Returns the price a shopper actually pays today for the cheapest edition.
+// When that edition is discounted, `price` is the sale price and `original` is
+// what it was struck through from.
 function grab(h) {
-  let ld = null, cur = null, name = null, m;
+  const ld = [], name0 = [];
+  let m;
   const re = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
   while ((m = re.exec(h))) {
     try {
-      const arr = [].concat(JSON.parse(m[1]));
-      for (const o of arr) {
-        if (o && o.name && !name) name = o.name;
-        const f = o && o.offers && (Array.isArray(o.offers) ? o.offers[0] : o.offers);
-        if (f && f.price != null) { ld = parseNum(f.price); cur = f.priceCurrency || cur; }
+      for (const o of [].concat(JSON.parse(m[1]))) {
+        if (o && o.name) name0.push(o.name);
+        for (const f of (o && o.offers ? [].concat(o.offers) : [])) {
+          if (f && f.price != null) {
+            ld.push({ price: parseNum(f.price), cur: f.priceCurrency || null, original: null, discount: null });
+          }
+        }
       }
     } catch (e) {}
   }
 
-  const b = priceBlock(h);
-  const base = b ? parseNum(b.base) : null;
-  const disc = b ? parseNum(b.disc) : null;
-  if (b && b.cur) cur = cur || b.cur;
+  const blocks = priceBlocks(h).map(b => {
+    const base = parseNum(b.base), disc = parseNum(b.disc);
+    return (disc != null && (base == null || disc < base))
+      ? { price: disc, original: base, cur: b.cur || null, discount: b.text || null }
+      : { price: base, original: null, cur: b.cur || null, discount: null };
+  });
 
-  let price = null, original = null;
-  if (disc != null && (base == null || disc < base)) {
-    price = disc; original = base;                 // on sale, per the store's own fields
-  } else if (ld != null) {
-    price = ld;
-    if (base != null && base > ld) original = base;  // JSON-LD already carried the sale price
-  } else if (base != null) {
-    price = base;
+  // JSON-LD describes the product and its editions; the embedded blocks can
+  // also cover add-ons, which would undercut the game itself. So prefer JSON-LD
+  // when it carries prices, and fall back to the blocks otherwise.
+  let pick = cheapest(ld) || cheapest(blocks);
+  if (!pick) return { price: null, cur: null, name: name0[0] || null, original: null, discount: null, editions: 0 };
+
+  // A JSON-LD offer carries no strikethrough. Tie it back to a block only when
+  // the block is demonstrably the same edition: it quotes the same discounted
+  // price, or the page has a single edition so there is nothing to confuse it
+  // with. Never borrow a higher edition's base price as this one's original.
+  if (pick.original == null) {
+    const same = blocks.find(b => b.price === pick.price && b.original != null && b.original > b.price);
+    if (same) {
+      pick = { ...pick, original: same.original, discount: same.discount };
+    } else if (blocks.length === 1 && blocks[0].price > pick.price) {
+      pick = { ...pick, original: blocks[0].price, discount: blocks[0].discount };
+    }
   }
 
-  let discount = null;
-  if (original != null && price != null && original > 0) {
-    discount = (b && b.text) ? b.text : '-' + Math.round((1 - price / original) * 100) + '%';
+  const cur = pick.cur || (ld.find(c => c.cur) || {}).cur || (blocks.find(c => c.cur) || {}).cur || null;
+  let discount = pick.discount;
+  if (pick.original != null && pick.price > 0 && !discount) {
+    discount = '-' + Math.round((1 - pick.price / pick.original) * 100) + '%';
   }
-  return { price, cur, name, original, discount };
+  return {
+    price: pick.price, cur, name: name0[0] || null,
+    original: pick.original != null && pick.original > pick.price ? pick.original : null,
+    discount: pick.original != null && pick.original > pick.price ? discount : null,
+    editions: Math.max(ld.length, blocks.length)     // how many priced entries the page carried
+  };
 }
 
 // Page text, one line per element boundary. The store renders the language
@@ -489,14 +537,19 @@ async function lookup(query) {
       voiceLanguages: r.voiceLanguages || null,
       redirected: r.cur != null && !isAccepted(rk, r.cur),   // excluded from ranking
       foreign: isForeign(rk, r.cur),                         // ranked, but not the local currency
+      editions: r.editions || 0,     // priced entries seen on the page it read
       via: r.via,                    // 'concept' | 'product' | 'search' | null
       productId: r.productId,
       url: r.url || null             // the exact store page this price came from
     };
   });
 
+  // The page's own name can be an edition ("... Deluxe Edition"); the catalogue
+  // knows the concept's name, which is what was actually asked for.
+  const catName = cid && CATALOG && CATALOG.names && CATALOG.names.get(String(cid));
+
   return {
-    title: gameName || title || query,
+    title: catName || gameName || title || query,
     productId: pid,
     conceptId: cid || null,
     resolvedBy,                    // 'catalog' | 'search' | 'conceptId' | 'productId'
@@ -574,6 +627,6 @@ if (require.main === module) {
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
-  keyName, loadCatalog, setCatalog: m => { CATALOG = m; },
+  keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, priceBlocks, cheapest,
   LOCALES, EXPECT, ALSO_OK, BASE
 };

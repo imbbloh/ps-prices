@@ -90,6 +90,49 @@ check(s4.price === 39.95 && s4.original === 79.9 && s4.discount === '-50%',
 const free = '<html>{"price":{"basePrice":"Free","currencyCode":"SGD","discountedPrice":"Free"}}</html>';
 check(grab(free).price === null, 'grab() unparseable "Free" -> null, not 0');
 
+// Multi-edition concept pages. Searching "LEGO Batman: Legacy of the Dark
+// Knight" returned the Deluxe Edition price, because the extractor took the
+// first price it found and the store listed Deluxe first. The base game is the
+// only price comparable across regions.
+const editions =
+  '<html>' +
+  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountedPrice":"$99.99"}}' +   // Deluxe, listed first
+  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$69.99"}}' +   // Standard
+  '{"price":{"basePrice":"$129.99","currencyCode":"USD","discountedPrice":"$129.99"}}' + // Ultimate
+  '</html>';
+const ED = grab(editions);
+check(ED.price === 69.99, 'grab() picks the base edition, not the first listed', '-> ' + ED.price);
+check(ED.editions === 3, 'grab() reports how many priced entries it saw', '-> ' + ED.editions);
+
+// Same, expressed as JSON-LD offers on one product.
+const ldEditions = '<html><script type="application/ld+json">' +
+  JSON.stringify({ '@type':'Product', name:'LEGO Batman', offers:[
+    { price:'99.99', priceCurrency:'USD' }, { price:'69.99', priceCurrency:'USD' }] }) +
+  '</script></html>';
+const LE = grab(ldEditions);
+check(LE.price === 69.99 && LE.cur === 'USD', 'grab() picks the cheapest JSON-LD offer', '-> ' + LE.price);
+
+// A free demo alongside a paid game must not win.
+const demo = '<html>' +
+  '{"price":{"basePrice":"Free","currencyCode":"USD","discountedPrice":"$0.00"}}' +
+  '{"price":{"basePrice":"$59.99","currencyCode":"USD","discountedPrice":"$59.99"}}' +
+  '</html>';
+check(grab(demo).price === 59.99, 'grab() ignores a free demo when a paid edition exists', '-> ' + grab(demo).price);
+
+// ...but a genuinely free game still reports 0.
+const reallyFree = '<html>{"price":{"basePrice":"$0.00","currencyCode":"USD","discountedPrice":"$0.00"}}</html>';
+check(grab(reallyFree).price === 0, 'grab() keeps 0 for a genuinely free game', '-> ' + grab(reallyFree).price);
+
+// The cheapest edition on sale keeps its own original, not a pricier edition's.
+const mixed = '<html>' +
+  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountedPrice":"$79.99"}}' +
+  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$49.99"}}' +
+  '</html>';
+const MX2 = grab(mixed);
+check(MX2.price === 49.99 && MX2.original === 69.99,
+  'grab() pairs the sale price with its own original', '-> ' + MX2.price + ' was ' + MX2.original);
+check(MX2.discount === '-29%', 'grab() derives the discount from the same edition', '-> ' + MX2.discount);
+
 // Language support. Screen languages (subtitles/UI) decide whether a
 // foreign-region copy is playable; "unknown" must stay distinct from "no".
 const VOICE = 'English, French (France), German, Italian, Japanese, Polish, Portuguese (Brazil), ' +

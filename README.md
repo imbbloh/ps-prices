@@ -164,6 +164,13 @@ all it still shows every store's local price rather than an empty table.
 
 - Buying a cheaper region's price requires a PSN account registered to that region plus that
   region's gift-card credit — card payments are geo-checked.
+- **Editions.** A concept page lists every edition, so the extractor reads them all and takes
+  the **cheapest paid** one: comparing a Deluxe price in one region against a Standard price in
+  another is not a comparison. Zero-priced entries are skipped when anything paid exists, so a
+  free demo listed beside the game does not win — unless the game really is free. Each result
+  reports `editions`, the number of priced entries the page carried. The title comes from
+  `catalog.json` when the lookup resolved through it, since the page's own name may be an
+  edition's.
 - **Sale prices.** When a title is discounted, the price shown and ranked is what a shopper
   pays today; the pre-discount figure comes back as `original` with a `discount` label and is
   struck through in the table. The store's `discountedPrice` is preferred over `basePrice`,
