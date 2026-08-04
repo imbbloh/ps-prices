@@ -7,7 +7,7 @@ const PORT = 39217;
 process.env.PS_BASE = 'http://localhost:' + PORT;
 
 const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
-        isAccepted, isForeign, region } = require('./server.js');
+        isAccepted, isForeign, region, languages } = require('./server.js');
 const http = require('http');
 
 let fails = 0;
@@ -89,6 +89,49 @@ check(s4.price === 39.95 && s4.original === 79.9 && s4.discount === '-50%',
 // A free title must stay 0 rather than being read as "no price".
 const free = '<html>{"price":{"basePrice":"Free","currencyCode":"SGD","discountedPrice":"Free"}}</html>';
 check(grab(free).price === null, 'grab() unparseable "Free" -> null, not 0');
+
+// Language support. Screen languages (subtitles/UI) decide whether a
+// foreign-region copy is playable; "unknown" must stay distinct from "no".
+const VOICE = 'English, French (France), German, Italian, Japanese, Polish, Portuguese (Brazil), ' +
+  'Portuguese (Portugal), Russian, Spanish, Spanish (Mexico)';
+const SCREEN = 'Arabic, Chinese (Simplified), Chinese (Traditional), Croatian, Czech, Danish, Dutch, ' +
+  'English, Finnish, French (France), German, Greek, Hungarian, Italian, Japanese, Korean, Norwegian, ' +
+  'Polish, Portuguese (Brazil), Portuguese (Portugal), Russian, Spanish, Spanish (Mexico), Swedish, Thai, Turkish';
+
+// Label and value in separate elements, as the store renders it.
+const dl = '<dl><dt>Voice</dt><dd>' + VOICE + '</dd>' +
+           '<dt>Screen Languages</dt><dd>' + SCREEN + '</dd></dl>';
+const L1 = languages(dl);
+check(L1.english === true, 'languages(): English detected', '-> ' + L1.english);
+check(L1.screen && L1.screen.length === 26 && L1.screen[0] === 'Arabic', 'languages(): screen list parsed', '-> ' + (L1.screen||[]).length + ' entries');
+check(L1.voice && L1.voice.length === 11 && L1.voice[0] === 'English', 'languages(): voice list parsed', '-> ' + (L1.voice||[]).length + ' entries');
+check(L1.screen.includes('French (France)'), 'languages(): parenthesised names survive splitting');
+
+// Same idea, but label and value on one line.
+const inline = '<div>Voice: ' + VOICE + '</div><div>Screen Languages: ' + SCREEN + '</div>';
+check(languages(inline).english === true, 'languages(): inline "Label: values" form');
+
+// A title with no English at all must report false, not unknown.
+const jp = '<dl><dt>Voice</dt><dd>Japanese</dd><dt>Screen Languages</dt><dd>Japanese, Korean</dd></dl>';
+const L2 = languages(jp);
+check(L2.english === false, 'languages(): no English -> false', '-> ' + L2.english);
+
+// Japanese voice but English subtitles is still playable -> true.
+const subs = '<dl><dt>Voice</dt><dd>Japanese</dd><dt>Screen Languages</dt><dd>Japanese, English</dd></dl>';
+check(languages(subs).english === true, 'languages(): English subtitles count');
+
+// Nothing on the page -> unknown, which must never render as "no English".
+const none = '<html><body><p>Buy now</p></body></html>';
+const L3 = languages(none);
+check(L3.english === null && L3.screen === null, 'languages(): absent -> null (unknown)', '-> ' + JSON.stringify(L3));
+
+// "Voice Chat" must not be mistaken for the Voice language list.
+const decoy = '<div>Voice Chat Supported</div><div>Screen Languages: English, Thai</div>';
+const L4 = languages(decoy);
+check(L4.english === true && L4.voice === null, 'languages(): "Voice Chat" is not the voice list', '-> voice=' + JSON.stringify(L4.voice));
+
+// Only voice data present -> fall back to it rather than reporting unknown.
+check(languages('<div>Voice: English, German</div>').english === true, 'languages(): falls back to voice list');
 
 // productIds(): document order, deduped, region-specific SKUs kept distinct
 const searchHtml = [
