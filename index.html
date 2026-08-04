@@ -42,16 +42,15 @@
   th{color:var(--dim);font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.6px}
   td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   tr.best td{background:linear-gradient(90deg,rgba(39,209,124,.14),transparent)}
-  .flag{margin-right:6px}
-  .flag:empty{display:none}
+  .fi{width:20px;height:15px;object-fit:cover;border-radius:2px;vertical-align:-2px;margin-right:8px;background:var(--panel2)}
+  .reg{white-space:nowrap}
   .badge{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:6px}
   .badge.best{background:var(--good);color:#04220f}
   .badge.warn{background:var(--warn);color:#3a2600}
   .badge.info{background:var(--panel2);color:var(--dim);border:1px solid var(--line)}
   a.store{color:inherit;text-decoration:none;border-bottom:1px dotted var(--dim)}
   a.store:hover,a.store:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
-  .was{color:var(--dim);font-size:.8em;margin-left:6px;text-decoration:line-through}
-  .badge.sale{background:rgba(39,209,124,.16);color:var(--good);border:1px solid rgba(39,209,124,.4)}
+  .was{display:block;color:var(--dim);font-size:.78em;text-decoration:line-through;margin-top:1px}
   .rank{color:var(--dim);width:1.5em;display:inline-block}
   .conv{font-weight:700}
   .foot{font-size:.72rem;color:var(--dim);margin-top:16px;line-height:1.6}
@@ -107,26 +106,12 @@
 </div>
 
 <script>
-const EMOJI={US:'🇺🇸',UA:'🇺🇦',IN:'🇮🇳',JP:'🇯🇵',BR:'🇧🇷',TR:'🇹🇷',ID:'🇮🇩',MY:'🇲🇾',TW:'🇹🇼',HK:'🇭🇰',KR:'🇰🇷',ZA:'🇿🇦',PL:'🇵🇱',NO:'🇳🇴',CA:'🇨🇦',AU:'🇦🇺',MX:'🇲🇽',GB:'🇬🇧',DE:'🇩🇪',SG:'🇸🇬'};
-
-// Chrome on Windows ships no flag glyphs, so regional-indicator pairs render as
-// tofu or bare letters. Draw one flag and look for colour: a real flag has
-// non-grey pixels, the letter fallback is monochrome.
-const FLAGS_OK=(()=>{
-  try{
-    const c=document.createElement('canvas'); c.width=c.height=16;
-    const x=c.getContext('2d',{willReadFrequently:true});
-    if(!x) return false;
-    x.textBaseline='top'; x.font='14px sans-serif'; x.fillStyle='#000';
-    x.fillText('🇨🇦',0,0);
-    const d=x.getImageData(0,0,16,16).data;
-    for(let i=0;i<d.length;i+=4){ if(d[i+3]>0&&(d[i]!==d[i+1]||d[i+1]!==d[i+2])) return true; }
-    return false;
-  }catch(e){ return false; }
-})();
-
-// With no flag support the two-letter code carries the meaning on its own.
-const FLAG=new Proxy({},{get:(_,k)=>FLAGS_OK?(EMOJI[k]||''):''});
+// Emoji flags are unusable here: Chrome on Windows ships no flag glyphs, so
+// they render as bare letters or tofu. Use real images instead, with the region
+// code as alt text so a blocked or failed image still identifies the row.
+const REGION_NAME={US:'United States',UA:'Ukraine',IN:'India',JP:'Japan',BR:'Brazil',TR:'Türkiye',ID:'Indonesia',MY:'Malaysia',TW:'Taiwan',HK:'Hong Kong',KR:'South Korea',ZA:'South Africa',PL:'Poland',NO:'Norway',CA:'Canada',AU:'Australia',MX:'Mexico',GB:'United Kingdom',DE:'Germany',SG:'Singapore'};
+const FLAG_SRC=r=>'https://flagcdn.com/w40/'+r.toLowerCase()+'.png';
+const flag=r=>'<img class="fi" src="'+FLAG_SRC(r)+'" alt="'+r+'" width="20" height="15" loading="lazy" referrerpolicy="no-referrer">';
 const $=id=>document.getElementById(id);
 const store={ get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
 
@@ -146,7 +131,7 @@ $('cur').addEventListener('change',()=>store.set('ps_cur',$('cur').value));
 
 const backendUrl=()=>($('backend').value||store.get('ps_backend')||DEFAULT_BACKEND).trim().replace(/\/$/,'');
 
-const label=r=>(FLAG[r]?FLAG[r]+' ':'')+r;
+const label=r=>flag(r)+' '+r;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // Link a price to the store page it came from. Only http(s) URLs from the
@@ -265,10 +250,11 @@ function render(rows, gameName, target){
       (home?'<div class="tile"><div class="k">'+home.r+'</div><div class="v">'+fmt(target,home.conv)+'</div></div>':'');
   }
   let h='';
-  good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+(i===0?'<span class="badge best">CHEAPEST</span>':'')+(x.off?'<span class="badge sale">'+esc(x.off)+'</span>':'')+(x.foreign?'<span class="badge info">'+x.cur+'</span>':'')+'</td><td class="num">'+priceCell(x)+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
-  redir.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'<span class="badge warn">'+x.cur+'</span></td><td class="num">'+priceCell(x)+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
-  noconv.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num">'+priceCell(x)+'</td><td class="num" style="color:var(--dim)">no rate</td></tr>'; });
-  bad.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num" colspan="2" style="color:var(--warn)">not available</td></tr>'; });
+  const cell=x=>'<td><span class="reg" title="'+esc((REGION_NAME[x.r]||x.r)+' · '+x.r)+'">'+flag(x.r)+'<b>'+esc(x.cur||x.r)+'</b></span>';
+  good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td>'+cell(x)+(i===0?'<span class="badge best">CHEAPEST</span>':'')+'</td><td class="num">'+priceCell(x)+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
+  redir.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td>'+cell(x)+'<span class="badge warn">'+esc(x.r)+'</span></td><td class="num">'+priceCell(x)+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
+  noconv.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td>'+cell(x)+'</td><td class="num">'+priceCell(x)+'</td><td class="num" style="color:var(--dim)">no rate</td></tr>'; });
+  bad.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td>'+cell(x)+'</td><td class="num" colspan="2" style="color:var(--warn)">not available</td></tr>'; });
   $('rows').innerHTML=h;
 
   // Unranked rows are easy to misread as "missing", so say what they are.
