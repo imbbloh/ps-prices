@@ -43,6 +43,7 @@
   td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   tr.best td{background:linear-gradient(90deg,rgba(39,209,124,.14),transparent)}
   .flag{margin-right:6px}
+  .flag:empty{display:none}
   .badge{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:6px}
   .badge.best{background:var(--good);color:#04220f}
   .badge.warn{background:var(--warn);color:#3a2600}
@@ -56,12 +57,11 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>🎮 PlayStation Store — Regional Price Finder</h1>
-    <p>Type a game title, hit Find prices, and see every region's PS Store price in one currency, cheapest first.</p>
+    <h1>🎮 PS Store — Regional Price Finder</h1>
   </header>
 
   <div class="card">
-    <label for="game">Game title, or a store URL / concept ID</label>
+    <label for="game">Game title or store URL</label>
     <div class="row">
       <input id="game" type="text" placeholder="e.g. 007 First Light — or paste a store URL" autocomplete="off">
       <select id="cur" title="Display currency">
@@ -77,9 +77,9 @@
     </div>
     <div class="settings" id="setToggle">▸ Backend settings</div>
     <div class="setbox" id="setBox">
-      <label for="backend" style="margin-top:8px">Backend URL (your Render service)</label>
+      <label for="backend" style="margin-top:8px">Backend URL</label>
       <input id="backend" type="text" style="width:100%" placeholder="https://your-service.onrender.com" autocomplete="off">
-      <div class="foot" style="margin-top:6px">Paste the URL of your deployed Render backend (see README). Saved in this browser.</div>
+      <div class="foot" style="margin-top:6px">Saved in this browser.</div>
     </div>
   </div>
 
@@ -96,15 +96,33 @@
   </div>
 
   <div class="foot">
-    <div><b>How it works:</b> the title is sent to your Render backend, which reads each region's official PlayStation Store price; this page then converts to your chosen currency using live rates (open.er-api.com). A grey currency badge (e.g. <b>USD</b> on Mexico) means that store lists in a currency other than its own — still a real price, so it is ranked normally. A <b>⚠</b> marks a currency that isn't valid for the region at all; those rows sit below the ranking.</div>
-    <div style="margin-top:8px"><b>Missing regions?</b> Search has to guess which store entry you meant. For an exact match, paste the game's store URL instead — e.g. <code>store.playstation.com/en-in/concept/10014719</code>. Concept links work in every region, so they resolve far more stores than a title search.</div>
-    <div style="margin-top:8px"><b>Note:</b> buying a cheaper region's price needs a PSN account set to that region + its gift-card credit.</div>
+    <div>Buying another region's price needs a PSN account set to that region and its gift-card credit.</div>
+    <div style="margin-top:6px">Missing regions? Paste the game's store URL instead of a title.</div>
     <div id="fxline" style="margin-top:8px"></div>
   </div>
 </div>
 
 <script>
-const FLAG={US:'🇺🇸',UA:'🇺🇦',IN:'🇮🇳',JP:'🇯🇵',BR:'🇧🇷',TR:'🇹🇷',ID:'🇮🇩',MY:'🇲🇾',TW:'🇹🇼',HK:'🇭🇰',KR:'🇰🇷',ZA:'🇿🇦',PL:'🇵🇱',NO:'🇳🇴',CA:'🇨🇦',AU:'🇦🇺',MX:'🇲🇽',GB:'🇬🇧',DE:'🇩🇪',SG:'🇸🇬'};
+const EMOJI={US:'🇺🇸',UA:'🇺🇦',IN:'🇮🇳',JP:'🇯🇵',BR:'🇧🇷',TR:'🇹🇷',ID:'🇮🇩',MY:'🇲🇾',TW:'🇹🇼',HK:'🇭🇰',KR:'🇰🇷',ZA:'🇿🇦',PL:'🇵🇱',NO:'🇳🇴',CA:'🇨🇦',AU:'🇦🇺',MX:'🇲🇽',GB:'🇬🇧',DE:'🇩🇪',SG:'🇸🇬'};
+
+// Chrome on Windows ships no flag glyphs, so regional-indicator pairs render as
+// tofu or bare letters. Draw one flag and look for colour: a real flag has
+// non-grey pixels, the letter fallback is monochrome.
+const FLAGS_OK=(()=>{
+  try{
+    const c=document.createElement('canvas'); c.width=c.height=16;
+    const x=c.getContext('2d',{willReadFrequently:true});
+    if(!x) return false;
+    x.textBaseline='top'; x.font='14px sans-serif'; x.fillStyle='#000';
+    x.fillText('🇨🇦',0,0);
+    const d=x.getImageData(0,0,16,16).data;
+    for(let i=0;i<d.length;i+=4){ if(d[i+3]>0&&(d[i]!==d[i+1]||d[i+1]!==d[i+2])) return true; }
+    return false;
+  }catch(e){ return false; }
+})();
+
+// With no flag support the two-letter code carries the meaning on its own.
+const FLAG=new Proxy({},{get:(_,k)=>FLAGS_OK?(EMOJI[k]||''):''});
 const $=id=>document.getElementById(id);
 const store={ get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
 
@@ -124,6 +142,7 @@ $('cur').addEventListener('change',()=>store.set('ps_cur',$('cur').value));
 
 const backendUrl=()=>($('backend').value||store.get('ps_backend')||DEFAULT_BACKEND).trim().replace(/\/$/,'');
 
+const label=r=>(FLAG[r]?FLAG[r]+' ':'')+r;
 function fmt(cur,val){ try{return new Intl.NumberFormat(undefined,{style:'currency',currency:cur,maximumFractionDigits:2}).format(val);}catch(e){return val.toLocaleString()+' '+cur;} }
 
 // --- status helpers -------------------------------------------------------
@@ -197,14 +216,12 @@ async function run(){
 
     const ok=rows.filter(x=>x.conv!=null && !x.red).length;
     const priced=(pr.priced!=null?pr.priced:rows.filter(x=>x.conv!=null).length);
-    let msg='Done — '+priced+'/'+pr.results.length+' regions priced for “'+pr.title+'”'+(fx.rates?', '+ok+' comparable':'')+'.';
-    if(pr.cached) msg+=' (cached)';
-    if(!fx.rates) msg+=' <span class="warm">Live rates unavailable — showing local prices only.</span>';
-    else if(fx.stale) msg+=' <span class="warm">Using saved FX rates from '+new Date(fx.ts).toLocaleDateString()+'.</span>';
+    let msg=pr.title+' — '+priced+'/'+pr.results.length+' regions';
+    if(!fx.rates) msg+=' <span class="warm">· no live rates, local prices only</span>';
+    else if(fx.stale) msg+=' <span class="warm">· saved rates from '+new Date(fx.ts).toLocaleDateString()+'</span>';
     setStatus(msg,false);
 
-    $('fxline').innerHTML='FX: '+(fx.rates?'open.er-api.com':'unavailable')+' · Prices: store.playstation.com · '
-      +priced+' of '+pr.results.length+' stores responded · '+new Date().toLocaleString();
+    $('fxline').innerHTML='store.playstation.com · '+(fx.rates?'open.er-api.com':'no FX')+' · '+new Date().toLocaleTimeString();
   }catch(e){
     clearTimers();
     const aborted=(e.name==='AbortError');
@@ -230,9 +247,8 @@ function render(rows, gameName, target){
   if(good.length){
     const c=good[0], sg=good.find(x=>x.r==='SG'), home=good.find(x=>x.r===target)||sg;
     $('summary').innerHTML=
-      '<div class="tile"><div class="k">Cheapest</div><div class="v good">'+FLAG[c.r]+' '+c.r+' · '+fmt(target,c.conv)+'</div></div>'+
-      (home?'<div class="tile"><div class="k">'+home.r+'</div><div class="v">'+fmt(target,home.conv)+'</div></div>':'')+
-      (home?'<div class="tile"><div class="k">Save vs '+home.r+'</div><div class="v good">'+fmt(target,Math.max(0,home.conv-c.conv))+'</div></div>':'');
+      '<div class="tile"><div class="k">Cheapest</div><div class="v good">'+label(c.r)+' · '+fmt(target,c.conv)+'</div></div>'+
+      (home?'<div class="tile"><div class="k">'+home.r+'</div><div class="v">'+fmt(target,home.conv)+'</div></div>':'');
   }
   let h='';
   good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+(i===0?'<span class="badge best">CHEAPEST</span>':'')+(x.foreign?'<span class="badge info">'+x.cur+'</span>':'')+'</td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
@@ -242,17 +258,13 @@ function render(rows, gameName, target){
   $('rows').innerHTML=h;
 
   // Unranked rows are easy to misread as "missing", so say what they are.
-  let n='';
+  const n=[];
   const foreignRanked=good.filter(x=>x.foreign);
-  if(foreignRanked.length) n+='<div><b>'+foreignRanked.map(x=>FLAG[x.r]+' '+x.r+' ('+x.cur+')').join(', ')
-    +'</b> — that store lists in a currency other than its own. It is a real price for that region, so it is ranked normally.</div>';
-  if(redir.length) n+='<div style="margin-top:6px"><b>'+redir.map(x=>FLAG[x.r]+' '+x.r).join(', ')+'</b> priced in '
-    +[...new Set(redir.map(x=>x.cur))].join('/')+' rather than the local currency, so '
-    +(redir.length>1?'they are':'it is')+' listed below the ranking and excluded from “cheapest”. '
-    +'That usually means the store served a fallback (often US) price rather than a genuine local one.</div>';
-  if(noconv.length) n+='<div style="margin-top:6px">'+noconv.length+' region(s) have a price but no FX rate to convert with.</div>';
-  if(bad.length) n+='<div style="margin-top:6px"><b>'+bad.map(x=>x.r).join(', ')+'</b> returned no price — not sold there, or the store didn’t respond. Try pasting the game’s store URL for an exact match.</div>';
-  $('note').innerHTML=n;
+  if(foreignRanked.length) n.push(foreignRanked.map(x=>x.r+' lists in '+x.cur).join(', ')+' — still ranked.');
+  if(redir.length) n.push(redir.map(x=>x.r).join(', ')+' priced in '+[...new Set(redir.map(x=>x.cur))].join('/')+' — excluded from the ranking.');
+  if(noconv.length) n.push(noconv.length+' region(s) have no FX rate.');
+  if(bad.length) n.push(bad.map(x=>x.r).join(', ')+' — no price found.');
+  $('note').innerHTML=n.join('<br>');
 }
 
 $('go').addEventListener('click',run);
