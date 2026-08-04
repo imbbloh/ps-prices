@@ -1,0 +1,54 @@
+name: Update game catalogue
+
+# Adds newly released games to catalog.json once a day. The incremental run
+# pages from the front of the category and stops once it stops finding
+# anything new, so a normal day is a couple of requests rather than a full
+# 10,000-entry walk.
+
+on:
+  schedule:
+    - cron: '17 5 * * *'          # 05:17 UTC daily (off the hour: less contended)
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Full rebuild instead of incremental'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalog
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Collect
+        run: |
+          if [ "${{ inputs.full }}" = "true" ]; then
+            node catalog.js --all --out catalog.json
+          else
+            node catalog.js --update --out catalog.json
+          fi
+
+      - name: Commit if anything changed
+        run: |
+          if git diff --quiet -- catalog.json; then
+            echo "No new games."
+            exit 0
+          fi
+          added=$(git diff --numstat -- catalog.json | awk '{print $1}')
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add catalog.json
+          git commit -m "Update game catalogue (+${added} lines)"
+          git push
