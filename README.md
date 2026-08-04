@@ -101,40 +101,46 @@ all it still shows every store's local price rather than an empty table.
   `Idiomas da tela` and lists `Inglês`. When a region reports unknown, the tool dumps the
   page's own language-ish lines so the real wording can be added to `SCREEN_LABELS` /
   `VOICE_LABELS` in `server.js`.
-- **Game catalogue:** `catalog.json` holds the US "All games" list as `{conceptId, name,
-  releaseDate}`, collected by `catalog.js` through the same GraphQL call the store's browse page
-  makes. `.github/workflows/catalog.yml` runs `node catalog.js --update` daily and commits only
-  when something changed, so the git history reads as a log of new releases. Prices are
-  deliberately not stored: they change constantly and would rewrite every row each day.
+- **Game catalogue:** `catalog.json` lists the US "All games" category as
+  `{conceptId, name, firstSeen}`, collected by `catalog.js` through the same GraphQL call the
+  store's browse page makes. `.github/workflows/catalog.yml` runs it daily and commits only when
+  something changed, so the history reads as a log of new releases.
 
   ```
-  node catalog.js                 # totals and a sample, writes nothing
-  node catalog.js --update        # add new games to catalog.json
-  node catalog.js --all           # full rebuild (~100 requests)
+  node catalog.js          # facets and totals, writes nothing
+  node catalog.js --new    # released in the last 30 days (~2 requests)
+  node catalog.js --all    # the complete catalogue, price band by price band
   ```
 
-  New games are found by **diffing against the previous file**, not by release date: this
-  persisted query returns no release date, and its selection set cannot be changed by the caller.
-  The category is also ordered by popularity rather than recency, so `--update` (which stops
-  after a few already-known pages) can miss an unpopular new release — `--all` is the reliable
-  mode and is what the daily workflow runs. A full walk is ~100 requests and about two minutes.
+  Filters are `"<facet>:<value>"` strings, verified against the counts the API reports for its
+  own facets. Two findings shape the design:
 
-  Two limits found while testing against the live API. The server refuses offsets at or beyond
-  **10,000** (`Incorrect offset/limit`) and reports `totalCount: 10000` regardless of the real
-  size, so a full walk is "the first 10,000 of the category", never "everything" — partition with
-  `filterBy`/`sortBy` to go past it. And the persisted-query `sha256Hash` changes when the store
-  redeploys its front end; on `PersistedQueryNotFound`, re-capture it from the browse page
-  (F12 → Network → filter `categoryGridRetrieve`) and pass `--hash`. Apollo also rejects the call
-  as possible CSRF unless `apollo-require-preflight` is sent. `PS_GQL` overrides the endpoint for
-  testing.
+  - **The category reports 12,908 games but refuses offsets past 10,000.** A single unfiltered
+    walk therefore silently returns only the first 10,000. `--all` walks one price band at a
+    time (the largest holds ~4,000) and unions them, reaching the whole catalogue. Bands come
+    from the live facet list, so new ones are picked up automatically.
+  - **`conceptReleaseDate:last_thirty_days` is a real release-date filter** (124 games at the
+    time of writing), so `--new` is a couple of requests rather than a full walk. The weekly
+    `--all` still matters: it catches back-catalogue titles added to the store long after their
+    release, which a last-30-days filter cannot see.
+
+  No release date is exposed on this query and a persisted query's fields cannot be changed by
+  the caller, so `firstSeen` records when this tool first saw a game instead. Prices are
+  deliberately not stored: they change constantly and would rewrite every row daily, burying the
+  one useful signal in the diff.
+
+  The persisted-query `sha256Hash` changes when the store redeploys its front end; on
+  `PersistedQueryNotFound`, re-capture it from the browse page (F12 → Network → filter
+  `categoryGridRetrieve`) and pass `--hash`. Apollo also rejects the call as possible CSRF
+  unless `apollo-require-preflight` is sent. `PS_GQL` overrides the endpoint for testing.
 
 - **Instant search.** With `catalog.json` present, the page loads it once (cached in
   `localStorage` for 24 h) and suggests titles as you type — no backend call, so no cold-start
-  wait. Picking a suggestion sends its **concept ID** instead of a title, and the backend also
-  loads `catalog.json` to resolve typed titles exactly, skipping the store-search step that used
-  to guess wrong. `keyName()` in `server.js` and `index.html` must stay identical, or a picked
-  suggestion would resolve differently server-side. Without the file, both sides fall back to
-  live search exactly as before.
+  wait. Picking a suggestion sends its **concept ID**, and the backend also loads `catalog.json`
+  to resolve typed titles exactly, skipping the store-search step that used to guess wrong.
+  `keyName()` in `server.js` and `index.html` must stay identical, or a picked suggestion would
+  resolve differently server-side. Without the file, both sides fall back to live search.
+
 - **Regions:** edit `LOCALES` (and `EXPECT`) in `server.js`.
 - **Flags:** country flags are images from `flagcdn.com` (the page's only third-party asset).
   Each carries its region code as `alt`, so if the CDN is blocked the code shows instead of a

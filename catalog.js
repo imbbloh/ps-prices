@@ -1,10 +1,9 @@
 // Collect the US store's game catalogue via the same GraphQL call the store's
 // own browse page makes. Needs network access to web.np.playstation.com.
 //
-//   node catalog.js                          # one page: totals and a sample
-//   node catalog.js --update                 # add new games to catalog.json
-//   node catalog.js --all                    # full walk (~100 requests)
-//   node catalog.js --all --out catalog.json # ...and save
+//   node catalog.js            # facets and totals, writes nothing
+//   node catalog.js --new      # games released in the last 30 days (~2 requests)
+//   node catalog.js --all      # the complete catalogue, price bucket by price bucket
 //
 // Discovered by watching the browse page's own network calls:
 //   operationName=categoryGridRetrieve
@@ -23,17 +22,28 @@
 //      re-capture it: browse page, F12 -> Network, filter "categoryGridRetrieve",
 //      copy sha256Hash from the request URL, pass it with --hash.
 //
-// Saved per game: conceptId, name (and releaseDate if the API ever returns one).
+// Filters are strings of the form "<facet>:<value>", verified against the
+// facet counts the API itself reports (conceptReleaseDate:last_thirty_days
+// returns exactly the 124 the Release Date facet claims).
 //
-// Release dates are NOT available from this call: the persisted query's product
-// selection does not include them, and a persisted query's fields cannot be
-// changed by the caller. New games are therefore found by diffing against the
-// previous file, not by date. The category is ordered by popularity rather than
-// recency, so --update (which stops after a few known pages) can miss a new
-// release that is not popular; --all is the reliable mode.
+// That solves both awkward parts:
 //
-// Prices are deliberately not saved -- they change constantly and would rewrite
-// every row daily, burying the one useful signal in the diff.
+//   NEW RELEASES. --new filters to conceptReleaseDate:last_thirty_days, so the
+//   daily check is a couple of requests driven by actual release date, rather
+//   than paging a category ordered by popularity and hoping new titles are near
+//   the front.
+//
+//   THE 10,000 CAP. The category reports 12,908 games across its price facet
+//   but refuses offsets past 10,000. --all therefore walks one price bucket at
+//   a time (the largest holds ~4,000) and unions the results, which reaches the
+//   whole catalogue instead of the first 10,000. Buckets come from the live
+//   facet list, so new bands are picked up automatically.
+//
+// Saved per game: conceptId, name, firstSeen. The API exposes no release date
+// on this query, so firstSeen records when this tool first saw the game --
+// stable, and enough to date an addition. Prices are deliberately not saved:
+// they change constantly and would rewrite every row daily, burying the one
+// useful signal in the diff.
 
 const fs = require('fs');
 
@@ -51,33 +61,13 @@ const SORT = val('--sort', null);       // e.g. a release-date sort, once its en
 const SIZE = Math.min(parseInt(val('--size', '100'), 10), 100);
 const DELAY = parseInt(val('--delay', '400'), 10);
 const OUT = val('--out', 'catalog.json');
-// How many consecutive all-known pages end an incremental run. New titles sit
-// at the front of the default ordering, so a few clean pages means we are past
-// them; this is deliberately generous because the ordering is not guaranteed.
-const STOP_AFTER = parseInt(val('--stop-after', '3'), 10);
-
-const SINCE = val('--since', null);     // ISO date; only count games released on/after it
-
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// Release date is not a top-level concept field; it hangs off the concept's
-// products (and the store also exposes it as a facet). Look in both places and
-// accept nothing rather than guessing.
-function releaseDate(c) {
-  const cand = c.releaseDate
-    || (c.products || []).map(p => p && (p.releaseDate || p.releaseDateTime)).find(Boolean)
-    || (c.personalizedMeta && c.personalizedMeta.releaseDate)
-    || null;
-  if (!cand) return null;
-  const d = new Date(cand);
-  return isNaN(d) ? null : d.toISOString().slice(0, 10);
-}
-
-async function grid(offset, size = SIZE) {
+async function grid(offset, size = SIZE, filterBy = [], facetOptions = []) {
   const variables = {
     id: CATEGORY, pageArgs: { size, offset },
     sortBy: SORT ? JSON.parse(SORT) : null,
-    filterBy: [], facetOptions: [], maxResults: null
+    filterBy, facetOptions, maxResults: null
   };
   const extensions = { persistedQuery: { version: 1, sha256Hash: HASH } };
   const url = GQL + '?operationName=categoryGridRetrieve'
@@ -115,78 +105,86 @@ function save(file, known) {
     .sort((a, b) => (a.name || '').localeCompare(b.name || '') || a.conceptId.localeCompare(b.conceptId));
   const body = rows.map(r => {
     const o = { conceptId: r.conceptId, name: r.name };
-    if (r.releaseDate) o.releaseDate = r.releaseDate;   // omit when the API did not give one
+    if (r.firstSeen) o.firstSeen = r.firstSeen;
     return '  ' + JSON.stringify(o);
   }).join(',\n');
   fs.writeFileSync(file, '[\n' + body + '\n]\n');
   return rows.length;
 }
 
-// Page forward, collecting concepts we do not already have. `stopAfter` ends an
-// incremental run once that many consecutive pages bring nothing new.
-async function walk(known, stopAfter) {
-  const added = [];
-  let clean = 0, pages = 0;
-  for (let offset = 0; offset < HARD_CAP; offset += SIZE) {
+// Collect every page of one filtered slice, adding anything not already known.
+async function collect(known, added, filterBy, label) {
+  const today = new Date().toISOString().slice(0, 10);
+  let offset = 0, pages = 0, total = null;
+  for (;;) {
     let g;
-    try { g = await grid(offset); }
-    catch (e) { console.log('  offset ' + offset + ': ' + e.message + ' — stopping'); break; }
+    try { g = await grid(offset, SIZE, filterBy); }
+    catch (e) { console.log('  ' + label + ' @' + offset + ': ' + e.message + ' — stopping slice'); break; }
     pages++;
-
-    let fresh = 0;
-    for (const c of (g.concepts || [])) {
+    const items = g.concepts || [];
+    for (const c of items) {
       if (!c || !c.id || known.has(c.id)) continue;
-      const rd = releaseDate(c);
-      if (SINCE && rd && rd < SINCE) continue;      // older than the cutoff: not a new game
-      known.set(c.id, { conceptId: c.id, name: c.name || null, releaseDate: rd });
-      added.push({ name: c.name || c.id, releaseDate: rd });
-      fresh++;
+      known.set(c.id, { conceptId: c.id, name: c.name || null, firstSeen: today });
+      added.push(c.name || c.id);
     }
-
-    if (fresh === 0) { if (++clean >= stopAfter) break; } else clean = 0;
-    if (g.pageInfo && g.pageInfo.isLast) break;
-    if (offset && offset % 1000 === 0) console.log('  offset ' + offset + ' … ' + known.size + ' known');
+    total = g.pageInfo ? g.pageInfo.totalCount : items.length;
+    offset += SIZE;
+    if ((g.pageInfo && g.pageInfo.isLast) || !items.length || offset >= Math.min(total, HARD_CAP)) break;
     await sleep(DELAY);
   }
-  return { added, pages };
+  console.log('  ' + String(label).padEnd(34) + String(total).padStart(6) + ' listed, ' + pages + ' page(s)');
+  if (total > HARD_CAP) console.log('    NOTE: slice exceeds the ' + HARD_CAP + ' cap; it needs splitting further.');
+  return pages;
 }
 
 (async () => {
-  const first = await grid(0);
-  const info = first.pageInfo || {};
-  console.log('category : ' + first.localizedName + '  (' + first.reportingName + ')');
-  console.log('total    : ' + info.totalCount + (info.totalCount === HARD_CAP ? '   <-- API cap, likely not the real total' : ''));
-  console.log('per page : ' + (first.concepts || []).length);
+  // One call with facets: totals, and the price bands used to partition.
+  const probe = await grid(0, 1, [], []);
+  const facets = probe.facetOptions || [];
+  const price = (facets.find(f => f.name === 'webBasePrice') || {}).values || [];
+  const release = (facets.find(f => f.name === 'conceptReleaseDate') || {}).values || [];
+  const realTotal = price.reduce((n, v) => n + v.count, 0);
 
-  if (!has('--all') && !has('--update')) {
-    console.log('sample   : ' + (first.concepts || []).slice(0, 3).map(c => c.name).join(' | '));
-    console.log('\n--update to add new games to ' + OUT + ', --all for a full rebuild.');
+  console.log('category  : ' + probe.localizedName + '  (' + probe.reportingName + ')');
+  console.log('reported  : ' + (probe.pageInfo || {}).totalCount + '   <-- capped at ' + HARD_CAP);
+  console.log('actual    : ' + realTotal + '   (summed across ' + price.length + ' price bands)');
+  release.forEach(v => console.log('  ' + v.key.padEnd(18) + String(v.count).padStart(5) + '  ' + v.displayName));
+
+  if (!has('--all') && !has('--new')) {
+    console.log('\n--new for the last 30 days, --all for the complete catalogue.');
     return;
   }
 
-  const previous = load(OUT);                       // for reporting what is genuinely new
-  const known = has('--all') ? new Map() : new Map(previous);
-  const incremental = has('--update') && previous.size > 0;
-  console.log('mode     : ' + (incremental
-    ? 'incremental (' + previous.size + ' known)'
-    : 'full walk' + (previous.size ? ' (' + previous.size + ' known, comparing)' : '')));
+  const previous = load(OUT);
+  const known = new Map(previous);         // keep firstSeen for games already recorded
+  const added = [];
+  let pages = 0;
 
-  const { pages } = await walk(known, incremental ? STOP_AFTER : Infinity);
-
-  // "New" means absent from the previous file, not merely seen during this run.
-  const added = [...known.values()].filter(r => !previous.has(r.conceptId));
-  const gone = [...previous.values()].filter(r => !known.has(r.conceptId));
+  if (has('--new')) {
+    console.log('\nmode      : new releases (conceptReleaseDate:last_thirty_days)');
+    pages += await collect(known, added, ['conceptReleaseDate:last_thirty_days'], 'last_thirty_days');
+  } else {
+    console.log('\nmode      : full walk, one price band at a time');
+    if (!price.length) {
+      console.log('  no price facet — falling back to a single unfiltered walk (will cap at ' + HARD_CAP + ')');
+      pages += await collect(known, added, [], 'unfiltered');
+    } else {
+      for (const b of price) {
+        pages += await collect(known, added, ['webBasePrice:' + b.key], b.key + '  ' + b.displayName);
+        await sleep(DELAY);
+      }
+    }
+  }
 
   console.log('\npages fetched: ' + pages);
   console.log('new games    : ' + added.length);
-  added.slice(0, 25).forEach(a => console.log('  + ' + a.name));
+  added.slice(0, 25).forEach(n => console.log('  + ' + n));
   if (added.length > 25) console.log('  … and ' + (added.length - 25) + ' more');
-  if (gone.length) console.log('dropped      : ' + gone.length + ' (delisted, or pushed past the ' + HARD_CAP + ' cap)');
 
   const total = save(OUT, known);
   console.log('catalogue    : ' + total + ' games -> ' + OUT);
-  if (!incremental && total >= HARD_CAP) {
-    console.log('NOTE: hit the ' + HARD_CAP + ' cap — this is the first ' + HARD_CAP + ' of the category, not all of it.');
+  if (has('--all') && realTotal && total < realTotal * 0.95) {
+    console.log('NOTE: collected ' + total + ' but the facets claim ' + realTotal + ' — a slice may have failed.');
   }
 })().catch(e => {
   console.error('failed: ' + e.message);
