@@ -256,7 +256,9 @@ function grab(h) {
   // JSON-LD describes the product and its editions; the embedded blocks can
   // also cover add-ons, which would undercut the game itself. So prefer JSON-LD
   // when it carries prices, and fall back to the blocks otherwise.
-  let pick = cheapest(ld) || cheapest(blocks);
+  const fromLd = cheapest(ld);
+  const source = fromLd ? ld : blocks;
+  let pick = fromLd || cheapest(blocks);
   if (!pick) return { price: null, cur: null, name: name0[0] || null, original: null, discount: null, editions: 0 };
 
   // A JSON-LD offer carries no strikethrough. Tie it back to a block only when
@@ -277,12 +279,26 @@ function grab(h) {
   if (pick.original != null && pick.price > 0 && !discount) {
     discount = '-' + Math.round((1 - pick.price / pick.original) * 100) + '%';
   }
+  // Every game entry, cheapest first, so the other editions can be shown too.
+  // Names are deliberately omitted: on a real page a label can sit 14,000
+  // characters from its price, so calling one of these "Deluxe" would be a
+  // guess. The prices themselves are reliable; which edition each one is, is not.
+  const editions = source
+    .filter(c => c.price != null)
+    .sort((a, b) => a.price - b.price)
+    .filter((c, i, arr) => i === 0 || c.price !== arr[i - 1].price)
+    .map(c => ({
+      price: c.price,
+      original: c.original != null && c.original > c.price ? c.original : null,
+      discount: c.original != null && c.original > c.price
+        ? (c.discount || '-' + Math.round((1 - c.price / c.original) * 100) + '%') : null
+    }));
+
   return {
     price: pick.price, cur, name: name0[0] || null,
     original: pick.original != null && pick.original > pick.price ? pick.original : null,
     discount: pick.original != null && pick.original > pick.price ? discount : null,
-    edition: pick.name || null,                      // best-effort label for the entry chosen
-    editions: Math.max(ld.length, blocks.length),    // priced game entries considered
+    editions,                                        // all game entries, cheapest first
     onPage: raw.length                               // every priced entry, add-ons included
   };
 }
@@ -532,7 +548,7 @@ async function region(pid, cid, loc, title) {
     }
   }
   return { price: null, cur: null, name: null, original: null, discount: null, english: null,
-           screenLanguages: null, voiceLanguages: null, via: null, productId: null, url: null };
+           screenLanguages: null, voiceLanguages: null, editions: [], via: null, productId: null, url: null };
 }
 
 async function lookup(query) {
@@ -597,7 +613,7 @@ async function lookup(query) {
       voiceLanguages: r.voiceLanguages || null,
       redirected: r.cur != null && !isAccepted(rk, r.cur),   // excluded from ranking
       foreign: isForeign(rk, r.cur),                         // ranked, but not the local currency
-      editions: r.editions || 0,     // priced entries seen on the page it read
+      editions: r.editions || [],    // every edition of the game, cheapest first
       via: r.via,                    // 'concept' | 'product' | 'search' | null
       productId: r.productId,
       url: r.url || null             // the exact store page this price came from

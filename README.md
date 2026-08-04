@@ -179,7 +179,12 @@ all it still shows every store's local price rather than an empty table.
   labels not yet in the exclusion list — which matters, since that list only grows by being
   surprised (`ITEM` was the surprise). If a page carries no classification anywhere, only its
   first entry is used, since editions and add-ons cannot then be told apart. Among the
-  remaining game entries the extractor takes the one that is **cheapest to actually pay** — comparing effective prices, not list prices, so
+  remaining game entries the table shows the one that is **cheapest to actually pay**, with the
+  other editions listed beneath it in grey (`+2 editions $69.99 · $99.99`) and the full list,
+  including each one's own strikethrough, on hover. Editions are returned per region as an
+  `editions` array, cheapest first. They are **not named**: a label can sit 14,000 characters
+  from its price, so calling one of them "Deluxe" would be a guess — the prices are reliable,
+  the mapping to edition names is not. Selection is — comparing effective prices, not list prices, so
   a Deluxe edition on deep discount beats a full-price Standard and is the price shown. The
   strikethrough is always that same edition's own list price. Otherwise: comparing a Deluxe price in one region against a Standard price in
   another is not a comparison. Zero-priced entries are skipped when anything paid exists, so a

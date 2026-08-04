@@ -53,6 +53,7 @@
   a.store{color:inherit;text-decoration:none;border-bottom:1px dotted var(--dim)}
   a.store:hover,a.store:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
   .was{display:block;color:var(--dim);font-size:.78em;text-decoration:line-through;margin-top:1px}
+  .eds{display:block;color:var(--dim);font-size:.74em;margin-top:2px;cursor:help}
   .sugwrap{position:relative;flex:1 1 200px;min-width:0;display:flex}
   .sug{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;background:var(--panel2);
        border:1px solid var(--line);border-radius:12px;overflow:hidden;display:none;
@@ -151,8 +152,14 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 // backend are linked, so a bad value degrades to plain text rather than markup.
 function priceCell(x){
   const was=x.was?'<s class="was">'+x.was+'</s>':'';
-  if(!x.url||!/^https:\/\/store\.playstation\.com\//.test(x.url)) return x.local+was;
-  return '<a class="store" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" title="Open the '+esc(x.r)+' store page">'+x.local+'</a>'+was;
+  const more=(x.eds||[]).slice(1);   // [0] is the one already shown
+  const extra=more.length
+    ? '<span class="eds" title="'+esc('All editions: '+(x.eds||[]).map(e=>
+        e.local+(e.was?' (was '+e.was+(e.off?' '+e.off:'')+')':'')).join('  ·  '))+'">'
+      + '+'+more.length+' edition'+(more.length>1?'s':'')+' '+more.map(e=>e.local).join(' · ')+'</span>'
+    : '';
+  if(!x.url||!/^https:\/\/store\.playstation\.com\//.test(x.url)) return x.local+was+extra;
+  return '<a class="store" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" title="Open the '+esc(x.r)+' store page">'+x.local+'</a>'+was+extra;
 }
 function fmt(cur,val){ try{return new Intl.NumberFormat(undefined,{style:'currency',currency:cur,maximumFractionDigits:2}).format(val);}catch(e){return val.toLocaleString()+' '+cur;} }
 
@@ -291,10 +298,13 @@ async function run(){
     const toTarget=(price,cur)=> (rate(cur)&&rate(target)) ? (price/rate(cur))*rate(target) : null;
 
     const rows=pr.results.map(x=>{
-      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false, foreign:false, url:null, was:null, off:null, en:x.english, langs:null};
+      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false, foreign:false, url:null, was:null, off:null, en:x.english, langs:null, eds:[]};
       return {r:x.region, cur:x.currency, price:x.price, local:fmt(x.currency,x.price), conv:toTarget(x.price,x.currency), red:x.redirected, foreign:x.foreign, url:x.url,
               was:x.original!=null?fmt(x.currency,x.original):null, off:x.discount||null,
-              en:x.english, langs:x.screenLanguages||x.voiceLanguages||null};
+              en:x.english, langs:x.screenLanguages||x.voiceLanguages||null,
+              eds:(x.editions||[]).map(e=>({
+                local:fmt(x.currency,e.price), conv:toTarget(e.price,x.currency),
+                was:e.original!=null?fmt(x.currency,e.original):null, off:e.discount||null}))};
     });
     render(rows, pr.title, target);
 

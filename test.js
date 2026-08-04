@@ -103,7 +103,8 @@ const editions = '<html>' +
   '</html>';
 const ED = grab(editions);
 check(ED.price === 69.99, 'grab() picks the base edition, not the first listed', '-> ' + ED.price);
-check(ED.editions === 3, 'grab() reports how many priced entries it saw', '-> ' + ED.editions);
+check(ED.editions.length === 3, 'grab() returns every edition, cheapest first',
+  '-> ' + ED.editions.map(e => e.price).join(', '));
 
 // Same, expressed as JSON-LD offers on one product.
 const ldEditions = '<html><script type="application/ld+json">' +
@@ -155,8 +156,8 @@ const withAddons = '<html>' +
   '</html>';
 const WA = grab(withAddons);
 check(WA.price === 59.99, 'grab() ignores add-ons and takes the cheapest game', '-> ' + WA.price);
-check(WA.editions === 2 && WA.onPage === 4, 'grab() counts games separately from everything priced',
-  '-> ' + WA.editions + ' games of ' + WA.onPage + ' entries');
+check(WA.editions.length === 2 && WA.onPage === 4, 'grab() lists games separately from everything priced',
+  '-> ' + WA.editions.length + ' games of ' + WA.onPage + ' entries');
 
 // An unfamiliar classification must be treated as a game, not silently dropped.
 const oddCls = '<html>' + ed('$69.99', '$69.99', 'SOMETHING_NEW') + ed('$9.99', '$9.99', 'GAME_RELATED') + '</html>';
@@ -217,8 +218,13 @@ const realLayout = '<html>' +
 const RL = grab(realLayout);
 check(RL.price === 49.59, 'grab() real layout: the discounted edition wins', '-> ' + RL.price);
 check(RL.original === 79.99, 'grab() real layout: its own strikethrough', '-> ' + RL.original);
-check(RL.editions === 5 && RL.onPage === 8,
-  'grab() real layout: five game entries, eight priced in all', '-> ' + RL.editions + ' of ' + RL.onPage);
+// Two distinct prices: the two $69.99 entries collapse, and the Game Trials
+// carry no parseable price at all.
+check(RL.editions.length === 2 && RL.onPage === 8,
+  'grab() real layout: two distinct game prices, eight priced in all',
+  '-> ' + RL.editions.map(e => e.price).join(', ') + ' of ' + RL.onPage);
+check(RL.editions[0].price === 49.59 && RL.editions[0].original === 79.99,
+  'grab() editions carry their own strikethrough', '-> ' + JSON.stringify(RL.editions[0]));
 
 // "ITEM" alone must not be mistaken for a game.
 const itemOnly = '<html>' + blk('$69.99', '$69.99', null) + blk('$19.99', '$19.99', 'ITEM') + '</html>';
