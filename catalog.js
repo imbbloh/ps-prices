@@ -151,8 +151,10 @@ async function collect(known, added, filterBy, label) {
   const release = (facets.find(f => f.name === 'conceptReleaseDate') || {}).values || [];
   const realTotal = price.reduce((n, v) => n + v.count, 0);
 
-  const sample = (price.find(v => /[^0-9 .\-]/.test(v.displayName)) || {}).displayName || '';
-  const symbol = (sample.match(/[^\w\s.\-]/) || [''])[0];
+  // Find a band label carrying a currency symbol ("Under $1.99"), not one that
+  // is only a word ("Free") -- the point is to make the storefront visible.
+  const symbol = price.map(v => (String(v.displayName).match(/[^\w\s.,\-]/) || [])[0])
+                      .find(Boolean) || '';
   console.log('category  : ' + probe.localizedName + '  (' + probe.reportingName + ')');
   console.log('locale    : ' + LOCALE + (symbol ? '   storefront prices in "' + symbol + '"' : ''));
   console.log('reported  : ' + (probe.pageInfo || {}).totalCount + '   <-- capped at ' + HARD_CAP);
@@ -165,35 +167,55 @@ async function collect(known, added, filterBy, label) {
   }
 
   const previous = load(OUT);
-  const known = new Map(previous);         // keep firstSeen for games already recorded
+  // Collect into a fresh map so a full walk knows exactly what the storefront
+  // listed this run, rather than inheriting whatever was in the file.
+  const seen = new Map();
   const added = [];
   let pages = 0;
 
   if (has('--new')) {
     console.log('\nmode      : new releases (conceptReleaseDate:last_thirty_days)');
-    pages += await collect(known, added, ['conceptReleaseDate:last_thirty_days'], 'last_thirty_days');
+    pages += await collect(seen, added, ['conceptReleaseDate:last_thirty_days'], 'last_thirty_days');
   } else {
     console.log('\nmode      : full walk, one price band at a time');
     if (!price.length) {
       console.log('  no price facet — falling back to a single unfiltered walk (will cap at ' + HARD_CAP + ')');
-      pages += await collect(known, added, [], 'unfiltered');
+      pages += await collect(seen, added, [], 'unfiltered');
     } else {
       for (const b of price) {
-        pages += await collect(known, added, ['webBasePrice:' + b.key], b.key + '  ' + b.displayName);
+        pages += await collect(seen, added, ['webBasePrice:' + b.key], b.key + '  ' + b.displayName);
         await sleep(DELAY);
       }
     }
   }
 
+  // A full walk is authoritative: the file becomes exactly what the storefront
+  // listed, so titles that were delisted -- or that came from a different
+  // storefront before the locale was pinned -- drop out. --new only ever sees a
+  // 30-day slice, so it must add to the file rather than replace it.
+  const known = has('--all') ? new Map() : new Map(previous);
+  for (const [id, row] of seen) {
+    const before = previous.get(id);
+    known.set(id, { ...row, firstSeen: (before && before.firstSeen) || row.firstSeen });
+  }
+
+  const fresh = [...seen.keys()].filter(id => !previous.has(id));
+  const dropped = has('--all') ? [...previous.values()].filter(r => !seen.has(r.conceptId)) : [];
+
   console.log('\npages fetched: ' + pages);
-  console.log('new games    : ' + added.length);
-  added.slice(0, 25).forEach(n => console.log('  + ' + n));
+  console.log('new games    : ' + fresh.length);
+  added.filter(n => true).slice(0, 25).forEach(n => console.log('  + ' + n));
   if (added.length > 25) console.log('  … and ' + (added.length - 25) + ' more');
+  if (dropped.length) {
+    console.log('removed      : ' + dropped.length + ' no longer listed');
+    dropped.slice(0, 10).forEach(r => console.log('  - ' + r.name));
+    if (dropped.length > 10) console.log('  … and ' + (dropped.length - 10) + ' more');
+  }
 
   const total = save(OUT, known);
   console.log('catalogue    : ' + total + ' games -> ' + OUT);
-  if (has('--all') && realTotal && total < realTotal * 0.95) {
-    console.log('NOTE: collected ' + total + ' but the facets claim ' + realTotal + ' — a slice may have failed.');
+  if (has('--all') && realTotal && seen.size < realTotal * 0.9) {
+    console.log('NOTE: this run saw ' + seen.size + ' but the facets claim ' + realTotal + ' — a slice may have failed.');
   }
 })().catch(e => {
   console.error('failed: ' + e.message);

@@ -129,6 +129,11 @@ all it still shows every store's local price rather than an empty table.
   deliberately not stored: they change constantly and would rewrite every row daily, burying the
   one useful signal in the diff.
 
+  `--all` is **authoritative**: the file becomes exactly what the storefront listed, so delisted
+  titles drop out and the log names them. `--new` only ever sees a 30-day slice, so it adds to
+  the file rather than replacing it. `firstSeen` is preserved across rebuilds for games that are
+  still listed.
+
   **The API geolocates by caller IP.** A GitHub runner in the UK returned the GB storefront —
   price bands in pounds and a different game count — while the same call from a browser on the
   en-us site returned the US one. `catalog.js` therefore pins the storefront with
