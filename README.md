@@ -101,13 +101,26 @@ all it still shows every store's local price rather than an empty table.
   `Idiomas da tela` and lists `Inglês`. When a region reports unknown, the tool dumps the
   page's own language-ish lines so the real wording can be added to `SCREEN_LABELS` /
   `VOICE_LABELS` in `server.js`.
-- **Listing the catalogue:** `node catalog.js --all --out us.json` collects the US "All games"
-  category via the same GraphQL call the store's browse page makes, saving `{conceptId, name,
-  price}`. Two caveats: the API refuses offsets at or beyond **10,000** and reports
-  `totalCount: 10000` regardless, so a result of exactly 10,000 means "the first 10,000", not
-  "everything" — partition with `filterBy`/`sortBy` to go further. And the persisted-query
-  `sha256Hash` changes when the store redeploys; re-capture it from the browse page's network
-  tab and pass `--hash`. Diagnostic tool, not part of the service.
+- **Game catalogue:** `catalog.json` holds the US "All games" list as `{conceptId, name,
+  releaseDate}`, collected by `catalog.js` through the same GraphQL call the store's browse page
+  makes. `.github/workflows/catalog.yml` runs `node catalog.js --update` daily and commits only
+  when something changed, so the git history reads as a log of new releases. Prices are
+  deliberately not stored: they change constantly and would rewrite every row each day.
+
+  ```
+  node catalog.js                 # totals and a sample, writes nothing
+  node catalog.js --update        # add new games to catalog.json
+  node catalog.js --all           # full rebuild (~100 requests)
+  ```
+
+  Two limits found while testing against the live API. The server refuses offsets at or beyond
+  **10,000** (`Incorrect offset/limit`) and reports `totalCount: 10000` regardless of the real
+  size, so a full walk is "the first 10,000 of the category", never "everything" — partition with
+  `filterBy`/`sortBy` to go past it. And the persisted-query `sha256Hash` changes when the store
+  redeploys its front end; on `PersistedQueryNotFound`, re-capture it from the browse page
+  (F12 → Network → filter `categoryGridRetrieve`) and pass `--hash`. Apollo also rejects the call
+  as possible CSRF unless `apollo-require-preflight` is sent. `PS_GQL` overrides the endpoint for
+  testing.
 - **Regions:** edit `LOCALES` (and `EXPECT`) in `server.js`.
 - **Flags:** country flags are images from `flagcdn.com` (the page's only third-party asset).
   Each carries its region code as `alt`, so if the CDN is blocked the code shows instead of a
