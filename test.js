@@ -57,6 +57,39 @@ check(g2.price === 74.9 && g2.cur === 'SGD', 'grab() basePrice fallback', '-> ' 
 // grab() on a page with no price at all must not invent one
 check(grab('<html><body>nothing here</body></html>').price === null, 'grab() no price -> null');
 
+// Sale pricing: a discounted title must report what a shopper pays today,
+// keeping the pre-discount figure for the strikethrough.
+const onSale = '<html>{"price":{"basePrice":"S$79.90","currencyCode":"SGD",' +
+  '"discountText":"-50%","discountedPrice":"S$39.95"}}</html>';
+const s1 = grab(onSale);
+check(s1.price === 39.95 && s1.original === 79.9 && s1.cur === 'SGD' && s1.discount === '-50%',
+  'grab() prefers the sale price', '-> ' + JSON.stringify(s1));
+
+// No discount: discountedPrice mirrors basePrice, so nothing is struck through.
+const notOnSale = '<html>{"price":{"basePrice":"S$79.90","currencyCode":"SGD",' +
+  '"discountedPrice":"S$79.90"}}</html>';
+const s2 = grab(notOnSale);
+check(s2.price === 79.9 && s2.original === null && s2.discount === null,
+  'grab() no discount -> no original', '-> ' + JSON.stringify(s2));
+
+// The percentage is derived when the store gives no discountText.
+const noText = '<html>{"price":{"basePrice":"$59.99","currencyCode":"USD","discountedPrice":"$44.99"}}</html>';
+const s3 = grab(noText);
+check(s3.price === 44.99 && s3.original === 59.99 && s3.discount === '-25%',
+  'grab() derives the discount percent', '-> ' + JSON.stringify(s3));
+
+// JSON-LD already carrying the sale price, with basePrice as the original.
+const ldSale = '<html><script type="application/ld+json">' +
+  '{"@type":"Product","name":"X","offers":{"price":"39.95","priceCurrency":"SGD"}}</script>' +
+  '{"basePrice":"S$79.90","currencyCode":"SGD"}</html>';
+const s4 = grab(ldSale);
+check(s4.price === 39.95 && s4.original === 79.9 && s4.discount === '-50%',
+  'grab() JSON-LD sale price keeps basePrice as original', '-> ' + JSON.stringify(s4));
+
+// A free title must stay 0 rather than being read as "no price".
+const free = '<html>{"price":{"basePrice":"Free","currencyCode":"SGD","discountedPrice":"Free"}}</html>';
+check(grab(free).price === null, 'grab() unparseable "Free" -> null, not 0');
+
 // productIds(): document order, deduped, region-specific SKUs kept distinct
 const searchHtml = [
   '<a href="/en-us/product/UB1599-PPSA29343_00-BEASTOFREINCARN">a</a>',

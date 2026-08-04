@@ -104,6 +104,10 @@ all it still shows every store's local price rather than an empty table.
 
 - Buying a cheaper region's price requires a PSN account registered to that region plus that
   region's gift-card credit — card payments are geo-checked.
+- **Sale prices.** When a title is discounted, the price shown and ranked is what a shopper
+  pays today; the pre-discount figure comes back as `original` with a `discount` label and is
+  struck through in the table. The store's `discountedPrice` is preferred over `basePrice`,
+  which is the pre-discount value by definition.
 - **Currencies that aren't the region's own.** The PS Store Mexico prices many titles in USD.
   That is a real price a Mexican account pays, so those rows are **ranked normally** and carry a
   grey currency badge. Add more exceptions in `ALSO_OK` in `server.js`:

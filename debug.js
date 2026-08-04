@@ -24,13 +24,15 @@ async function probe(path, lang) {
   if (h == null) return { ok: false, why: 'no page (404 / timeout / blocked)' };
   const r = grab(h);
   if (r.price == null) return { ok: false, why: 'page loaded (' + h.length + ' bytes) but no price in it' };
-  return { ok: true, price: r.price, cur: r.cur, name: r.name };
+  return { ok: true, price: r.price, cur: r.cur, name: r.name, original: r.original, discount: r.discount };
 }
 
 // A store answering in someone else's currency is usually geo-fallback.
 function note(rk, r) {
-  if (!r.ok || !r.cur || r.cur === EXPECT[rk]) return '';
-  return '  <-- ' + r.cur + ', expected ' + EXPECT[rk];
+  let s = '';
+  if (r.ok && r.original != null) s += '  (was ' + r.original + ' ' + (r.discount || '') + ')';
+  if (r.ok && r.cur && r.cur !== EXPECT[rk]) s += '  <-- ' + r.cur + ', expected ' + EXPECT[rk];
+  return s;
 }
 
 (async () => {

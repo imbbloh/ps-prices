@@ -106,8 +106,26 @@ function parseNum(raw) {
   return isNaN(n) ? null : n;
 }
 
+// The store's embedded price object carries the sale price separately from the
+// original. Keys sit together in one small flat object, so read them from a
+// window around the first "basePrice" rather than trying to brace-match JSON.
+function priceBlock(h) {
+  const i = h.indexOf('"basePrice"');
+  if (i < 0) return null;
+  const w = h.slice(Math.max(0, i - 200), i + 600);
+  const pick = re => (w.match(re) || [])[1];
+  return {
+    base: pick(/"basePrice":"([^"]*)"/),
+    disc: pick(/"discountedPrice":"([^"]*)"/),
+    cur:  pick(/"currencyCode":"([A-Z]{3})"/),
+    text: pick(/"discountText":"([^"]*)"/)
+  };
+}
+
+// Returns the price a shopper actually pays today. When a title is discounted,
+// `price` is the sale price and `original` is what it was struck through from.
 function grab(h) {
-  let price = null, cur = null, name = null, m;
+  let ld = null, cur = null, name = null, m;
   const re = /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g;
   while ((m = re.exec(h))) {
     try {
@@ -115,15 +133,31 @@ function grab(h) {
       for (const o of arr) {
         if (o && o.name && !name) name = o.name;
         const f = o && o.offers && (Array.isArray(o.offers) ? o.offers[0] : o.offers);
-        if (f && f.price != null) { price = parseNum(f.price); cur = f.priceCurrency || cur; }
+        if (f && f.price != null) { ld = parseNum(f.price); cur = f.priceCurrency || cur; }
       }
     } catch (e) {}
   }
-  if (price == null) {
-    const pm = h.match(/"basePrice":"([^"]+)"/), cm = h.match(/"currencyCode":"([A-Z]{3})"/);
-    if (pm) { price = parseNum(pm[1]); cur = cm ? cm[1] : cur; }
+
+  const b = priceBlock(h);
+  const base = b ? parseNum(b.base) : null;
+  const disc = b ? parseNum(b.disc) : null;
+  if (b && b.cur) cur = cur || b.cur;
+
+  let price = null, original = null;
+  if (disc != null && (base == null || disc < base)) {
+    price = disc; original = base;                 // on sale, per the store's own fields
+  } else if (ld != null) {
+    price = ld;
+    if (base != null && base > ld) original = base;  // JSON-LD already carried the sale price
+  } else if (base != null) {
+    price = base;
   }
-  return { price, cur, name };
+
+  let discount = null;
+  if (original != null && price != null && original > 0) {
+    discount = (b && b.text) ? b.text : '-' + Math.round((1 - price / original) * 100) + '%';
+  }
+  return { price, cur, name, original, discount };
 }
 
 // All product IDs on a page, in document order, deduped.
@@ -205,7 +239,7 @@ async function region(pid, cid, loc, title) {
       }
     }
   }
-  return { price: null, cur: null, name: null, via: null, productId: null, url: null };
+  return { price: null, cur: null, name: null, original: null, discount: null, via: null, productId: null, url: null };
 }
 
 async function lookup(query) {
@@ -254,6 +288,8 @@ async function lookup(query) {
       region: rk,
       currency: r.cur,
       price: r.price,
+      original: r.original || null,   // pre-discount price, when on sale
+      discount: r.discount || null,   // e.g. '-50%'
       redirected: r.cur != null && !isAccepted(rk, r.cur),   // excluded from ranking
       foreign: isForeign(rk, r.cur),                         // ranked, but not the local currency
       via: r.via,                    // 'concept' | 'product' | 'search' | null
