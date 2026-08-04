@@ -101,6 +101,10 @@ all it still shows every store's local price rather than an empty table.
   `Idiomas da tela` and lists `Inglês`. When a region reports unknown, the tool dumps the
   page's own language-ish lines so the real wording can be added to `SCREEN_LABELS` /
   `VOICE_LABELS` in `server.js`.
+- **Enumerating the catalogue:** `node catalog.js` probes whether the whole US store can be
+  listed — sitemaps first, then browse-page HTML, then whether the site's GraphQL persisted-query
+  hashes are discoverable. `--pages N` crawls that many browse pages, `--out file.json` saves the
+  ids. It is a diagnostic, not part of the service.
 - **Regions:** edit `LOCALES` (and `EXPECT`) in `server.js`.
 - **Flags:** country flags are images from `flagcdn.com` (the page's only third-party asset).
   Each carries its region code as `alt`, so if the CDN is blocked the code shows instead of a
