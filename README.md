@@ -96,6 +96,9 @@ all it still shows every store's local price rather than an empty table.
   prints, per region, which tier was tried and exactly how it failed — a page that never
   loaded, a page that loaded without a price, or a region search with no product links.
 - **Regions:** edit `LOCALES` (and `EXPECT`) in `server.js`.
+- **Flags:** country flags are images from `flagcdn.com` (the page's only third-party asset).
+  Each carries its region code as `alt`, so if the CDN is blocked the code shows instead of a
+  broken image. Change `FLAG_SRC` in `index.html` to use another source or drop them.
 - **Display currency:** the dropdown in `index.html` (add options freely; any ISO code that
   open.er-api.com supports works).
 - **Cache time:** `TTL` in `server.js`.
