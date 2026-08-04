@@ -1,23 +1,29 @@
 name: Update game catalogue
 
-# Rebuilds catalog.json daily and commits it when anything changed, so the git
-# history reads as a log of which games appeared.
+# Two schedules, because they answer different questions:
 #
-# A full walk is used rather than an incremental one: the category is ordered by
-# popularity, not by release date, and the API exposes no release date on this
-# query — so a new but unpopular title would not appear near the front and an
-# incremental run would miss it. A full walk is 100 requests and about two
-# minutes, which is cheap enough not to trade correctness for.
+#   Daily   --new  filters conceptReleaseDate:last_thirty_days, so it costs a
+#                  couple of requests and is driven by real release dates.
+#   Weekly  --all  walks every price band and unions them, which reaches the
+#                  whole catalogue (~12,900) rather than the 10,000 the API
+#                  will serve from a single unfiltered walk. This also catches
+#                  back-catalogue titles added to the store long after release,
+#                  which a last-30-days filter cannot see.
+#
+# Either way the commit is only made when catalog.json actually changed, so the
+# history reads as a log of what appeared.
 
 on:
   schedule:
-    - cron: '17 5 * * *'          # 05:17 UTC daily (off the hour: less contended)
+    - cron: '17 5 * * 1-6'        # Mon-Sat: new releases only
+    - cron: '47 4 * * 0'          # Sunday: full rebuild
   workflow_dispatch:
     inputs:
-      incremental:
-        description: 'Incremental instead of a full walk (faster, can miss unpopular new titles)'
-        type: boolean
-        default: false
+      mode:
+        description: 'Which collection to run'
+        type: choice
+        options: [new, all]
+        default: all
 
 permissions:
   contents: write
@@ -36,17 +42,23 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Collect
+      - name: Choose mode
+        id: mode
         run: |
-          if [ "${{ inputs.incremental }}" = "true" ]; then
-            node catalog.js --update --out catalog.json
+          if [ -n "${{ inputs.mode }}" ]; then
+            echo "flag=--${{ inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "$(date -u +%u)" = "7" ]; then
+            echo "flag=--all" >> "$GITHUB_OUTPUT"
           else
-            node catalog.js --all --out catalog.json
+            echo "flag=--new" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Collect
+        run: node catalog.js ${{ steps.mode.outputs.flag }} --out catalog.json
 
       - name: Commit if anything changed
         run: |
-          # `git add` first: catalog.json is untracked on the very first run, and
+          # Stage first: catalog.json is untracked on the very first run, and
           # `git diff` alone does not see untracked files — which silently threw
           # away the first full collection.
           git add catalog.json
