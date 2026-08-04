@@ -260,4 +260,7 @@ if (require.main === module) {
   server.listen(PORT, () => console.log('PS-SGD backend on :' + PORT));
 }
 
-module.exports = { parseNum, grab, region, lookup, pool, productIds, conceptId };
+module.exports = {
+  parseNum, grab, region, lookup, pool, productIds, conceptId,
+  getText, priceAt, LOCALES, EXPECT, BASE
+};
