@@ -170,24 +170,75 @@ function textLines(h) {
           .split('\n').map(s => s.trim()).filter(Boolean);
 }
 
-// The label is matched either alone on its line or with its value after a
-// colon — never as a prefix, so "Voice Chat Supported" cannot be mistaken for
-// the "Voice" language list.
-function langList(lines, label) {
-  const alone = new RegExp('^' + label + '\\s*:?$', 'i');
-  const inline = new RegExp('^' + label + '\\s*:\\s*(.+)$', 'i');
+// Each storefront renders this spec in its own language: the Brazilian store
+// says "Voz" / "Idiomas da tela" and lists "Inglês", not "English". Matching
+// only the English wording would report "unknown" for 9 of the 20 regions.
+
+// Strip accents so "Inglês", "Inglés" and Turkish "İngilizce" all reduce to
+// plain ASCII and can be matched with one pattern. Recompose afterwards: NFD
+// splits Hangul syllables into Jamo, so "화면 언어" would otherwise stop
+// matching its own composed form.
+const norm = s => ('' + s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+                          .normalize('NFC').toLowerCase().trim();
+
+// "English" as each storefront writes it. `angl` covers anglais/angielski/
+// anglictina, `англ` covers Англійська/Английский.
+const ENGLISH_NAME = /^(english|ingles|inglese|anglais|englisch|angielski|ingilizce|engels|engelsk|angl|англ|英語|英文|영어|อังกฤษ|bahasa ingg?eris|bahasa inggris)/;
+
+const VOICE_LABELS = ['voice', 'voz', 'audio', 'ses', 'sprachausgabe', 'dzwiek', 'glos',
+  'ozvuchennia', 'озвучення', 'голос', '音声', '語音', '语音', '음성', 'suara', 'เสียง'];
+const SCREEN_LABELS = ['screen languages?', 'idiomas? da tela', 'idiomas? en pantalla',
+  'ekran dilleri?', 'bildschirmsprachen?', 'j[eę]zyki? ekranow[eiy]', 'мов[аи] екрана',
+  '画面表示言語', '螢幕語言', '屏幕语言', '화면 언어', 'bahasa layar', 'ภาษาบนหน้าจอ'];
+
+// Anything that reads like a language label, for wording not in the lists above.
+const ANY_LANG_LABEL = /(language|idioma|lingua|langue|sprache|j[eę]zyk|jezyk|мов|dil|言語|語言|언어|ภาษา|bahasa)/;
+
+// A value line is a language list, not prose: comma-separated shortish names.
+function asList(v) {
+  if (!v || v.length > 400 || /[.!?]$/.test(v)) return null;
+  const parts = v.split(/[,、，]\s*/).map(s => s.trim()).filter(Boolean);
+  if (!parts.length || parts.some(p => p.length > 40)) return null;
+  return parts;
+}
+
+// The label must stand alone on its line or precede a colon — never merely be a
+// prefix, so "Voice Chat Supported" cannot be read as the voice language list.
+function labelledList(lines, labels) {
+  const alone = new RegExp('^(' + labels.join('|') + ')\\s*:?$');
+  const inline = new RegExp('^(' + labels.join('|') + ')\\s*:\\s*(.+)$');
   for (let i = 0; i < lines.length; i++) {
+    const n = norm(lines[i]);
     let v = null;
-    const m = lines[i].match(inline);
-    if (m) v = m[1];
-    else if (alone.test(lines[i])) {
+    const m = n.match(inline);
+    if (m) v = lines[i].slice(lines[i].length - m[2].length);
+    else if (alone.test(n)) {
       for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
         if (!/:$/.test(lines[j])) { v = lines[j]; break; }   // skip a following label
       }
     }
-    if (!v) continue;
-    const parts = v.split(/,\s*/).map(s => s.trim()).filter(Boolean);
-    if (parts.length) return parts;
+    const list = asList(v);
+    if (list) return list;
+  }
+  return null;
+}
+
+// Last resort: a label we do not have wording for, but which clearly names a
+// language field, followed by something that parses as a language list.
+function anyLangList(lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const n = norm(lines[i]);
+    if (n.length > 40 || !ANY_LANG_LABEL.test(n)) continue;
+    const inline = n.includes(':') ? lines[i].slice(lines[i].indexOf(':') + 1) : null;
+    let list = asList(inline);
+    if (!list) {
+      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+        if (/:$/.test(lines[j])) continue;
+        list = asList(lines[j]);
+        if (list) break;
+      }
+    }
+    if (list && list.some(s => ENGLISH_NAME.test(norm(s)))) return { list, label: lines[i] };
   }
   return null;
 }
@@ -197,11 +248,18 @@ function langList(lines, label) {
 // — that is "unknown", and must not be shown as "no English".
 function languages(h) {
   const lines = textLines(h);
-  const screen = langList(lines, 'Screen Languages?');
-  const voice = langList(lines, 'Voice');
-  const has = a => a ? a.some(s => /^english\b/i.test(s)) : null;
+  const screen = labelledList(lines, SCREEN_LABELS);
+  const voice = labelledList(lines, VOICE_LABELS);
+  const has = a => a ? a.some(s => ENGLISH_NAME.test(norm(s))) : null;
   const s = has(screen), v = has(voice);
-  return { screen, voice, english: s != null ? s : v };
+
+  let english = s != null ? s : v;
+  let source = screen ? 'screen' : (voice ? 'voice' : null);
+  if (english == null) {
+    const g = anyLangList(lines);
+    if (g) { english = true; source = 'label:' + g.label; }
+  }
+  return { screen, voice, english, source };
 }
 
 // All product IDs on a page, in document order, deduped.

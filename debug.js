@@ -1,13 +1,25 @@
 // Diagnose *why* a region fails to price. Needs network access to the store.
 //
-//   node debug.js "Beast of Reincarnation"          # all regions
-//   node debug.js "Beast of Reincarnation" SG JP DE # just these
+//   node debug.js "Beast of Reincarnation"           # all regions
+//   node debug.js "Beast of Reincarnation" SG JP DE  # just these
+//   node debug.js --langs "<url|title>" BR JP        # language spec only
+//
+// --langs prints what each store page actually says about languages: the label
+// it matched, the list it read, and the resulting english flag. When a region
+// comes back unknown it dumps nearby language-ish lines instead, so the real
+// wording can be added to SCREEN_LABELS / VOICE_LABELS in server.js.
 //
 // Prints, per region, exactly which of the three tiers was tried and what came
 // back — so a 3/20 result tells you whether the concept tier or the per-region
 // search tier is the one falling over.
 
-const { getText, grab, productIds, conceptId, parseQuery, acceptLang, LOCALES, EXPECT, BASE } = require('./server.js');
+const { getText, grab, productIds, conceptId, parseQuery, acceptLang, languages, textLines,
+        LOCALES, EXPECT, BASE } = require('./server.js');
+
+const argv = process.argv.slice(2);
+const LANGS_ONLY = argv[0] === '--langs';
+if (LANGS_ONLY) argv.shift();
+process.argv = [process.argv[0], process.argv[1], ...argv];
 
 const query = process.argv[2];
 if (!query) { console.error('usage: node debug.js "<title | store URL | conceptId>" [REGION...]'); process.exit(1); }
@@ -66,6 +78,36 @@ function note(rk, r) {
     console.log('title          : ' + (title || 'unknown (tier 3 will be skipped)'));
   }
   console.log('');
+
+  // --langs: report what each store page says about languages, in its own words.
+  if (LANGS_ONLY) {
+    for (const rk of regions) {
+      const loc = LOCALES[rk], lang = acceptLang(loc);
+      let h = cid ? await getText(BASE + '/' + loc + '/concept/' + cid, 1, lang) : null;
+      let from = 'concept';
+      let L = h ? languages(h) : { english: null };
+      if (L.english == null && pid) {                     // concept pages often omit the spec
+        const p = await getText(BASE + '/' + loc + '/product/' + pid, 1, lang);
+        if (p) { h = p; from = 'product'; L = languages(p); }
+      }
+      if (!h) { console.log(rk + ' (' + loc + ')  =>  no page'); continue; }
+
+      console.log(rk + ' (' + loc + ')  =>  english=' + L.english + '   [' + from + ' page]');
+      if (L.source) console.log('   matched  : ' + L.source);
+      if (L.screen) console.log('   screen   : ' + L.screen.join(', '));
+      if (L.voice)  console.log('   voice    : ' + L.voice.join(', '));
+      if (L.english == null) {
+        // Show the page's own wording so the labels can be extended.
+        const hits = textLines(h).filter(l => l.length < 60 &&
+          /(language|idioma|lingua|langue|sprache|j[ee]zyk|мов|dil|言語|語言|언어|ภาษา|bahasa|voice|voz|audio|ses|音声|음성)/i.test(l));
+        console.log('   UNKNOWN — nearest language-ish lines on the page:');
+        (hits.length ? hits.slice(0, 12) : ['   (none — the spec is probably not in the server HTML)'])
+          .forEach(l => console.log('     | ' + l));
+      }
+      console.log('');
+    }
+    return;
+  }
 
   const tally = { product: 0, concept: 0, search: 0, none: 0 };
 
