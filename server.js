@@ -178,18 +178,58 @@ function textLines(h) {
 // plain ASCII and can be matched with one pattern. Recompose afterwards: NFD
 // splits Hangul syllables into Jamo, so "화면 언어" would otherwise stop
 // matching its own composed form.
+// Some letters are not accented forms and so survive NFD untouched — Polish ł
+// is its own letter, which is why "Głos" never matched a plain "glos" pattern.
+const LETTERS = { 'ł':'l', 'ø':'o', 'đ':'d', 'ð':'d', 'þ':'th', 'ß':'ss', 'æ':'ae', 'œ':'oe', 'ı':'i' };
 const norm = s => ('' + s).normalize('NFD').replace(/[̀-ͯ]/g, '')
-                          .normalize('NFC').toLowerCase().trim();
+                          .normalize('NFC').toLowerCase()
+                          .replace(/[łøđðþßæœı]/g, c => LETTERS[c]).trim();
 
 // "English" as each storefront writes it. `angl` covers anglais/angielski/
 // anglictina, `англ` covers Англійська/Английский.
 const ENGLISH_NAME = /^(english|ingles|inglese|anglais|englisch|angielski|ingilizce|engels|engelsk|angl|англ|英語|英文|영어|อังกฤษ|bahasa ingg?eris|bahasa inggris)/;
 
+// Labels are matched against normalized text, so these are written accent-free.
 const VOICE_LABELS = ['voice', 'voz', 'audio', 'ses', 'sprachausgabe', 'dzwiek', 'glos',
-  'ozvuchennia', 'озвучення', 'голос', '音声', '語音', '语音', '음성', 'suara', 'เสียง'];
-const SCREEN_LABELS = ['screen languages?', 'idiomas? da tela', 'idiomas? en pantalla',
-  'ekran dilleri?', 'bildschirmsprachen?', 'j[eę]zyki? ekranow[eiy]', 'мов[аи] екрана',
-  '画面表示言語', '螢幕語言', '屏幕语言', '화면 언어', 'bahasa layar', 'ภาษาบนหน้าจอ'];
+  'озвучення', 'голос', '音声', '語音', '语音', '음성', 'suara', 'เสียง'];
+const SCREEN_LABELS = ['screen languages?', 'idiomas? da tela', 'idiomas? (?:de|en) pantalla',
+  'ekran dilleri?', 'bildschirmsprachen?', 'wyswietlane jezyki', 'jezyki? ekranow[eiy]',
+  'мов[аи] екрана', '画面表示言語', '螢幕語言', '屏幕语言', '화면 언어', 'bahasa layar',
+  'ภาษาบนหน้าจอ'];
+
+// Names of the languages these stores actually list, across the languages they
+// list them in. Used only to confirm that a value really is a language list —
+// so a spec row like "PS5" or "Acción" can never be read as "no English".
+const LANG_STEMS = new RegExp('(' + [
+  'english','ingl','angl','англ','英','영어',
+  'japan','japon','giappon','日本','일본',
+  'german','alem','allem','deutsch','niemieck','німец','ドイツ','독일','德',
+  'french','franc','franz','francuski','フランス','프랑스','法',
+  'spanish','espan','hiszpa','spanisch','スペイン','스페인','西班牙',
+  'italian','italia','ital','wlos','イタリア','이탈리아','意大利',
+  'portug','ポルトガル','포르투갈','葡萄牙',
+  'korean','corean','korean','한국','韓','조선',
+  'chinese','chin','chino','中文','中國','中国','繁體','简体','중국',
+  'russian','rus','росій','русск','ロシア','러시아','俄',
+  'polish','polski','polaco','polonais','ポーランド','폴란드',
+  'turkish','turk','turec','トルコ','터키',
+  'arabic','arab','アラビア','아랍','阿拉伯',
+  'thai','タイ','태국','ไทย',
+  'dutch','nederlands','holand','オランダ','네덜란드',
+  'danish','dansk','danes','デンマーク',
+  'finnish','suomi','finn','フィンランド',
+  'swedish','svensk','sueco','szwedzki','スウェーデン',
+  'norwegian','norsk','noruego','norwesk','ノルウェー',
+  'greek','grieg','greck','grec','ギリシャ','그리스',
+  'czech','cesk','checo','チェコ',
+  'hungarian','magyar','hungar','wegier','ハンガリー',
+  'croatian','hrvatski','croata','chorwacki'
+].join('|') + ')');
+
+// A value is only trusted as a language list if at least one entry names a
+// language. This is what keeps "Voz:" followed by an unrelated cell from being
+// reported as "no English" rather than simply unknown.
+const looksLikeLanguages = parts => !!parts && parts.some(p => LANG_STEMS.test(norm(p)));
 
 // Anything that reads like a language label, for wording not in the lists above.
 const ANY_LANG_LABEL = /(language|idioma|lingua|langue|sprache|j[eę]zyk|jezyk|мов|dil|言語|語言|언어|ภาษา|bahasa)/;
@@ -219,7 +259,9 @@ function labelledList(lines, labels) {
       }
     }
     const list = asList(v);
-    if (list) return list;
+    // Keep looking if what followed the label was not a language list — the
+    // label may appear more than once, or its value may sit elsewhere.
+    if (looksLikeLanguages(list)) return list;
   }
   return null;
 }

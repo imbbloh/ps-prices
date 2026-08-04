@@ -194,6 +194,46 @@ const brInline = '<p>Gêneros: Ação</p><p>Voz: Inglês, Japonês</p><p>Idiomas
 const BRI = languages(brInline);
 check(BRI.english === true && BRI.screen.length === 11, 'languages(): pt-br inline form', '-> ' + BRI.english + '/' + BRI.screen.length);
 
+// Mexico and Poland, transcribed from the live pages. Both label the fields
+// differently from Brazil, and Polish "Głos" contains ł — not an accented l, so
+// NFD leaves it alone and a plain "glos" pattern never matched it.
+const MX_SCREEN = 'Alemán, Chino - Simplificado, Chino - Tradicional, Coreano, Español, ' +
+  'Español (México), Francés (Francia), Inglés, Italiano, Japonés, Portugués (Brasil)';
+const mxReal = '<dl><dt>Plataforma:</dt><dd>PS5</dd><dt>Lanzamiento:</dt><dd>4/8/2026</dd>' +
+  '<dt>Editor:</dt><dd>Fictions</dd><dt>Géneros:</dt><dd>Acción</dd>' +
+  '<dt>Voz:</dt><dd>Inglés, Japonés</dd>' +
+  '<dt>Idiomas de pantalla:</dt><dd>' + MX_SCREEN + '</dd></dl>';
+const MXL = languages(mxReal);
+check(MXL.english === true, 'languages(): real es-mx spec -> English', '-> ' + MXL.english + ' via ' + MXL.source);
+check(MXL.screen && MXL.screen.length === 11, 'languages(): es-mx screen list is 11 entries', '-> ' + (MXL.screen||[]).length);
+
+const PL_SCREEN = 'Angielski, Chiński (tradycyjny), Chiński (uproszczony), Francuski (Francja), ' +
+  'Hiszpański, Hiszpański (Meksyk), Japoński, Koreański, Niemiecki, Portugalski (Brazylia), Włoski';
+const plReal = '<dl><dt>Platforma:</dt><dd>PS5</dd><dt>Premiera:</dt><dd>4.8.2026</dd>' +
+  '<dt>Wydawca:</dt><dd>Fictions</dd><dt>Gatunki:</dt><dd>Akcja</dd>' +
+  '<dt>Głos:</dt><dd>Angielski, Japoński</dd>' +
+  '<dt>Wyświetlane języki:</dt><dd>' + PL_SCREEN + '</dd></dl>';
+const PLL = languages(plReal);
+check(PLL.english === true, 'languages(): real pl-pl spec -> English', '-> ' + PLL.english + ' via ' + PLL.source);
+check(PLL.screen && PLL.screen.length === 11, 'languages(): pl-pl screen list is 11 entries', '-> ' + (PLL.screen||[]).length);
+check(PLL.voice && PLL.voice.join(', ') === 'Angielski, Japoński', 'languages(): pl-pl "Głos" label matches despite ł', '-> ' + (PLL.voice||[]).join(', '));
+
+// A wrong "NO EN" is worse than no badge: if the value after a language label
+// is not a language list, the answer must be unknown, never false.
+const twoCol = '<div><span>Plataforma:</span><span>Lanzamiento:</span><span>Editor:</span>' +
+  '<span>Géneros:</span><span>Voz:</span><span>Idiomas de pantalla:</span></div>' +
+  '<div><span>PS5</span><span>4/8/2026</span><span>Fictions</span><span>Acción</span></div>';
+const TC = languages(twoCol);
+check(TC.english === null, 'languages(): detached values -> unknown, not "no English"', '-> ' + TC.english);
+check(languages('<dl><dt>Voz:</dt><dd>PS5</dd></dl>').english === null,
+  'languages(): a non-language value is not treated as "no English"');
+check(languages('<dl><dt>Géneros:</dt><dd>Acción, Aventura</dd></dl>').english === null,
+  'languages(): a genre list is not a language list');
+
+// The guard must not suppress a genuine "no English" answer.
+const reallyNoEn = '<dl><dt>Voz:</dt><dd>Japonés</dd><dt>Idiomas de pantalla:</dt><dd>Japonés, Coreano</dd></dl>';
+check(languages(reallyNoEn).english === false, 'languages(): genuine no-English still reports false');
+
 // productIds(): document order, deduped, region-specific SKUs kept distinct
 const searchHtml = [
   '<a href="/en-us/product/UB1599-PPSA29343_00-BEASTOFREINCARN">a</a>',
