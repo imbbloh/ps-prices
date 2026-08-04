@@ -113,8 +113,34 @@ function productIds(h) {
   return out;
 }
 
+// Concept IDs, in document order, deduped. Read from both the embedded JSON
+// key and any /concept/<id> link on the page — search results often link
+// straight to the concept even when the JSON key is absent or renamed.
+function conceptIds(h) {
+  const out = [], seen = new Set();
+  for (const re of [/"conceptId":"?(\d+)"?/g, /\/concept\/(\d+)/g]) {
+    let m;
+    while ((m = re.exec(h))) {
+      if (!seen.has(m[1])) { seen.add(m[1]); out.push(m[1]); }
+    }
+  }
+  return out;
+}
+
 function conceptId(h) {
-  return (h.match(/"conceptId":"?(\d+)"?/) || [])[1] || null;
+  return conceptIds(h)[0] || null;
+}
+
+// Accept a pasted store URL or a bare concept ID instead of a title, so a
+// known-good concept (e.g. .../en-in/concept/10014719) skips search entirely.
+function parseQuery(q) {
+  const s = ('' + q).trim();
+  const cm = s.match(/\/concept\/(\d+)/);
+  if (cm) return { conceptId: cm[1], productId: null, title: null };
+  const pm = s.match(/\/product\/([A-Z0-9][\w-]{6,})/i);
+  if (pm) return { conceptId: null, productId: pm[1], title: null };
+  if (/^\d{5,}$/.test(s)) return { conceptId: s, productId: null, title: null };
+  return { conceptId: null, productId: null, title: s };
 }
 
 // A page only counts as a hit if it actually carries a price.
@@ -125,20 +151,21 @@ async function priceAt(path) {
   return r.price != null ? r : null;
 }
 
-// 3-tier resolve for one region:
-//   1. the shared productId found via the global (en-us) search
-//   2. the conceptId, which is global and often survives region-locked SKUs
+// 3-tier resolve for one region, cheapest-and-most-reliable first:
+//   1. the conceptId — global, so the same ID works in every storefront
+//   2. the productId found via the global (en-us) search — often region-specific
 //   3. that region's own store search, to find its local SKU
-// Region-locked titles (e.g. Beast of Reincarnation) have per-region product
-// IDs, so tier 3 is what pulls them in.
+// Product IDs vary per region on region-locked titles (Beast of Reincarnation
+// is ...PPSA29343... in the US but ...PPSA29344... in India), which is why the
+// concept goes first and per-region search is the last resort.
 async function region(pid, cid, loc, title) {
-  if (pid) {
-    const r = await priceAt('/' + loc + '/product/' + pid);
-    if (r) return { ...r, via: 'product', productId: pid };
-  }
   if (cid) {
     const r = await priceAt('/' + loc + '/concept/' + cid);
     if (r) return { ...r, via: 'concept', productId: null };
+  }
+  if (pid) {
+    const r = await priceAt('/' + loc + '/product/' + pid);
+    if (r) return { ...r, via: 'product', productId: pid };
   }
   if (title) {
     const h = await getText(BASE + '/' + loc + '/search/' + encodeURIComponent(title));
@@ -153,25 +180,40 @@ async function region(pid, cid, loc, title) {
   return { price: null, cur: null, name: null, via: null, productId: null };
 }
 
-async function lookup(title) {
+async function lookup(query) {
   const started = Date.now();
+  const q = parseQuery(query);
+  let pid = q.productId, cid = q.conceptId, title = q.title;
 
-  // title -> productId (and conceptId) via the global store search
-  const html = await getText(BASE + '/en-us/search/' + encodeURIComponent(title), 3);
-  const candidates = html ? productIds(html) : [];
-  const pid = candidates[0] || null;
+  if (!pid && !cid) {
+    // title -> conceptId / productId via the global store search
+    const html = await getText(BASE + '/en-us/search/' + encodeURIComponent(title), 3);
+    const candidates = html ? productIds(html) : [];
+    pid = candidates[0] || null;
+    cid = html ? conceptId(html) : null;
 
-  // A concept ID is global, so it is worth a couple of extra page loads to find one.
-  let cid = html ? conceptId(html) : null;
-  for (const c of candidates.slice(0, 2)) {
-    if (cid) break;
-    const p = await getText(BASE + '/en-us/product/' + c);
+    // A concept ID resolves every region at once, so it is worth a couple of
+    // extra page loads to find one.
+    for (const c of candidates.slice(0, 2)) {
+      if (cid) break;
+      const p = await getText(BASE + '/en-us/product/' + c);
+      if (p) cid = conceptId(p);
+    }
+  } else if (pid && !cid) {
+    const p = await getText(BASE + '/en-us/product/' + pid);
     if (p) cid = conceptId(p);
   }
 
   // With no productId AND no conceptId there is nothing to resolve against,
   // and per-region search alone is too loose to trust.
-  if (!pid && !cid) return { error: 'No match for "' + title + '"' };
+  if (!pid && !cid) return { error: 'No match for "' + query + '"' };
+
+  // Given a bare URL/ID we have no title yet; recover one from the concept
+  // page so the per-region search tier still has something to search for.
+  if (!title && cid) {
+    const p = await getText(BASE + '/en-us/concept/' + cid);
+    if (p) title = grab(p).name || null;
+  }
 
   const keys = Object.keys(LOCALES);
   const found = await pool(keys, CONCURRENCY, rk => region(pid, cid, LOCALES[rk], title));
@@ -191,7 +233,7 @@ async function lookup(title) {
   });
 
   return {
-    title: gameName || title,
+    title: gameName || title || query,
     productId: pid,
     conceptId: cid || null,
     priced: results.filter(r => r.price != null).length,
@@ -261,6 +303,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  parseNum, grab, region, lookup, pool, productIds, conceptId,
-  getText, priceAt, LOCALES, EXPECT, BASE
+  parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
+  parseQuery, getText, priceAt, LOCALES, EXPECT, BASE
 };

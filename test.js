@@ -1,6 +1,6 @@
 // Offline unit tests for the price parser + resolver helpers (no network needed).
 // Run: node test.js
-const { parseNum, grab, pool, productIds, conceptId } = require('./server.js');
+const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery } = require('./server.js');
 
 let fails = 0;
 function check(ok, label, detail) {
@@ -63,6 +63,30 @@ check(productIds('<html>no products</html>').length === 0, 'productIds() empty p
 check(conceptId('{"conceptId":"10010739"}') === '10010739', 'conceptId() quoted');
 check(conceptId('{"conceptId":10010739}') === '10010739', 'conceptId() unquoted');
 check(conceptId('<html>none</html>') === null, 'conceptId() missing -> null');
+
+// conceptIds() must also pick concepts up from plain /concept/<id> links,
+// which is how they appear on search results when the JSON key is absent.
+check(conceptId('<a href="/en-in/concept/10014719">Beast of Reincarnation</a>') === '10014719',
+  'conceptId() from a /concept/ link');
+const cids = conceptIds('<a href="/en-in/concept/10014719">x</a><a href="/en-us/concept/10014719">dup</a><a href="/en-us/concept/10010739">y</a>');
+check(cids.length === 2 && cids[0] === '10014719' && cids[1] === '10010739',
+  'conceptIds() dedupe across locales', '-> ' + JSON.stringify(cids));
+check(conceptIds('<html>none</html>').length === 0, 'conceptIds() none -> []');
+
+// parseQuery(): a pasted store URL or bare ID must skip search entirely.
+const pq = [
+  ['https://store.playstation.com/en-in/concept/10014719', { conceptId:'10014719', productId:null, title:null }],
+  ['https://store.playstation.com/en-us/product/UB1599-PPSA29343_00-BEAST', { conceptId:null, productId:'UB1599-PPSA29343_00-BEAST', title:null }],
+  ['10014719',                { conceptId:'10014719', productId:null, title:null }],
+  ['Beast of Reincarnation',  { conceptId:null, productId:null, title:'Beast of Reincarnation' }],
+  ['007 First Light',         { conceptId:null, productId:null, title:'007 First Light' }],
+  ['  Elden Ring  ',          { conceptId:null, productId:null, title:'Elden Ring' }]
+];
+for (const [inp, exp] of pq) {
+  const got = parseQuery(inp);
+  check(got.conceptId === exp.conceptId && got.productId === exp.productId && got.title === exp.title,
+    'parseQuery ' + JSON.stringify(inp).padEnd(58), '-> ' + JSON.stringify(got));
+}
 
 // pool(): preserves input order and never exceeds the concurrency cap
 (async () => {

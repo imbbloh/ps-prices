@@ -7,10 +7,10 @@
 // back — so a 3/20 result tells you whether the concept tier or the per-region
 // search tier is the one falling over.
 
-const { getText, grab, productIds, conceptId, LOCALES, BASE } = require('./server.js');
+const { getText, grab, productIds, conceptId, parseQuery, LOCALES, BASE } = require('./server.js');
 
-const title = process.argv[2];
-if (!title) { console.error('usage: node debug.js "<title>" [REGION...]'); process.exit(1); }
+const query = process.argv[2];
+if (!query) { console.error('usage: node debug.js "<title | store URL | conceptId>" [REGION...]'); process.exit(1); }
 const want = process.argv.slice(3).map(s => s.toUpperCase());
 const regions = (want.length ? want : Object.keys(LOCALES)).filter(r => {
   if (LOCALES[r]) return true;
@@ -28,24 +28,36 @@ async function probe(path) {
 }
 
 (async () => {
-  console.log('Title: ' + title + '\n');
+  const q = parseQuery(query);
+  let pid = q.productId, cid = q.conceptId, title = q.title;
+  console.log('Query: ' + query);
 
-  const searchHtml = await getText(BASE + '/en-us/search/' + encodeURIComponent(title), 3);
-  if (!searchHtml) { console.log('GLOBAL SEARCH FAILED — no network, or the store blocked us.'); process.exit(1); }
-
-  const cands = productIds(searchHtml);
-  let cid = conceptId(searchHtml);
-  console.log('Global search  : ' + cands.length + ' product id(s)');
-  cands.slice(0, 5).forEach(c => console.log('                 ' + c));
-
-  for (const c of cands.slice(0, 2)) {
-    if (cid) break;
-    const p = await getText(BASE + '/en-us/product/' + c, 1);
-    if (p) cid = conceptId(p);
+  if (!pid && !cid) {
+    const searchHtml = await getText(BASE + '/en-us/search/' + encodeURIComponent(title), 3);
+    if (!searchHtml) { console.log('GLOBAL SEARCH FAILED — no network, or the store blocked us.'); process.exit(1); }
+    const cands = productIds(searchHtml);
+    pid = cands[0] || null;
+    cid = conceptId(searchHtml);
+    console.log('Global search  : ' + cands.length + ' product id(s)');
+    cands.slice(0, 5).forEach(c => console.log('                 ' + c));
+    for (const c of cands.slice(0, 2)) {
+      if (cid) break;
+      const p = await getText(BASE + '/en-us/product/' + c, 1);
+      if (p) cid = conceptId(p);
+    }
+  } else {
+    console.log('(given directly — global search skipped)');
   }
-  console.log('conceptId      : ' + (cid || 'NOT FOUND  <-- tier 2 is dead without this'));
-  const pid = cands[0] || null;
-  console.log('shared pid     : ' + (pid || 'none') + '\n');
+
+  console.log('conceptId      : ' + (cid || 'NOT FOUND  <-- tier 1 is dead without this'));
+  console.log('shared pid     : ' + (pid || 'none'));
+
+  if (!title && cid) {
+    const p = await getText(BASE + '/en-us/concept/' + cid, 1);
+    if (p) title = grab(p).name || null;
+    console.log('title          : ' + (title || 'unknown (tier 3 will be skipped)'));
+  }
+  console.log('');
 
   const tally = { product: 0, concept: 0, search: 0, none: 0 };
 
@@ -54,19 +66,21 @@ async function probe(path) {
     const line = [];
     let done = null;
 
-    if (pid) {
+    if (cid) {
+      const r = await probe('/' + loc + '/concept/' + cid);
+      line.push('  1 concept : ' + (r.ok ? 'OK ' + r.price + ' ' + r.cur : r.why));
+      if (r.ok) done = 'concept';
+    } else {
+      line.push('  1 concept : skipped (no conceptId)');
+    }
+    if (!done && pid) {
       const r = await probe('/' + loc + '/product/' + pid);
-      line.push('  1 product : ' + (r.ok ? 'OK ' + r.price + ' ' + r.cur : r.why));
+      line.push('  2 product : ' + (r.ok ? 'OK ' + r.price + ' ' + r.cur : r.why));
       if (r.ok) done = 'product';
     }
-    if (!done && cid) {
-      const r = await probe('/' + loc + '/concept/' + cid);
-      line.push('  2 concept : ' + (r.ok ? 'OK ' + r.price + ' ' + r.cur : r.why));
-      if (r.ok) done = 'concept';
+    if (!done && !title) {
+      line.push('  3 search  : skipped (no title to search with)');
     } else if (!done) {
-      line.push('  2 concept : skipped (no conceptId)');
-    }
-    if (!done) {
       const h = await getText(BASE + '/' + loc + '/search/' + encodeURIComponent(title), 1);
       if (!h) {
         line.push('  3 search  : region search page did not load');

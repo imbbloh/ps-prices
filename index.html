@@ -60,9 +60,9 @@
   </header>
 
   <div class="card">
-    <label for="game">Game title</label>
+    <label for="game">Game title, or a store URL / concept ID</label>
     <div class="row">
-      <input id="game" type="text" placeholder="e.g. 007 First Light" autocomplete="off">
+      <input id="game" type="text" placeholder="e.g. 007 First Light — or paste a store URL" autocomplete="off">
       <select id="cur" title="Display currency">
         <option value="SGD" selected>SGD</option>
         <option value="USD">USD</option>
@@ -95,6 +95,7 @@
 
   <div class="foot">
     <div><b>How it works:</b> the title is sent to your Render backend, which reads each region's official PlayStation Store price; this page then converts to your chosen currency using live rates (open.er-api.com). A <b>⚠</b> marks a store listing in an unexpected currency (e.g. Mexico in USD).</div>
+    <div style="margin-top:8px"><b>Missing regions?</b> Search has to guess which store entry you meant. For an exact match, paste the game's store URL instead — e.g. <code>store.playstation.com/en-in/concept/10014719</code>. Concept links work in every region, so they resolve far more stores than a title search.</div>
     <div style="margin-top:8px"><b>Note:</b> buying a cheaper region's price needs a PSN account set to that region + its gift-card credit.</div>
     <div id="fxline" style="margin-top:8px"></div>
   </div>
