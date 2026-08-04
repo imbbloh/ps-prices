@@ -193,6 +193,33 @@ check(ML.price === 49.59, 'grab() MLB page: the discounted edition, not a Stubs 
 check(ML.original === 79.99, 'grab() MLB page: strikethrough is that edition\'s own price', '-> ' + ML.original);
 check(ML.onPage === 10, 'grab() MLB page: counts every priced entry', '-> ' + ML.onPage);
 
+// The real page's layout, with its actual distances. FULL_GAME sits 14,000
+// characters from the price it belongs to and PREMIUM_EDITION comes *after*
+// its price, so labels cannot be matched to prices by proximity. Every game
+// price does appear before the first add-on label, which is what the split
+// actually relies on.
+const pad = n => ' '.repeat(n);
+const CLS = c => '"storeDisplayClassification":"' + c + '",';
+const P = (base, disc) => '{"price":{"basePrice":"' + base + '","currencyCode":"USD","discountedPrice":"' + disc + '"}}';
+const realLayout = '<html>' +
+  CLS('FULL_GAME') + pad(14000) +               // label, then a long way to its price
+  P('Game Trial', 'Game Trial') + pad(2000) +
+  P('$69.99', '$69.99') + pad(120000) +         // Standard
+  P('$79.99', '$49.59') + pad(600) +            // Deluxe on sale...
+  CLS('PREMIUM_EDITION') + pad(9000) +          // ...whose label follows it
+  P('Game Trial', 'Game Trial') + pad(2000) +
+  P('$69.99', '$69.99') + pad(500) +
+  CLS('FULL_GAME') + pad(42000) +
+  CLS('VIRTUAL_CURRENCY') + pad(250) + P('$99.99', '$99.99') + pad(900) +   // carousel
+  CLS('ITEM') + pad(240) + P('$19.99', '$19.99') + pad(900) +
+  CLS('VIRTUAL_CURRENCY') + pad(250) + P('$0.99', '$0.99') +
+  '</html>';
+const RL = grab(realLayout);
+check(RL.price === 49.59, 'grab() real layout: the discounted edition wins', '-> ' + RL.price);
+check(RL.original === 79.99, 'grab() real layout: its own strikethrough', '-> ' + RL.original);
+check(RL.editions === 5 && RL.onPage === 8,
+  'grab() real layout: five game entries, eight priced in all', '-> ' + RL.editions + ' of ' + RL.onPage);
+
 // "ITEM" alone must not be mistaken for a game.
 const itemOnly = '<html>' + blk('$69.99', '$69.99', null) + blk('$19.99', '$19.99', 'ITEM') + '</html>';
 check(grab(itemOnly).price === 69.99, 'grab() ITEM is an add-on, not a game', '-> ' + grab(itemOnly).price);

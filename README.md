@@ -170,13 +170,15 @@ all it still shows every store's local price rather than an empty table.
   region's gift-card credit — card payments are geo-checked.
 - **Editions and add-ons.** A concept page lists the game's editions *and its add-ons*, and an
   add-on is always cheaper — so picking the cheapest entry outright returns a piece of DLC.
-  Taken from a real page (MLB The Show 26): the game and its editions come first and carry **no
-  classification at all**, then an add-on carousel of Stubs packs labelled `VIRTUAL_CURRENCY` and
-  `ITEM`. A game therefore cannot be recognised positively — only non-games can be excluded — so
-  two rules apply together: entries labelled as add-ons, currency or subscriptions are dropped,
-  and **everything after the carousel begins is discarded**, which catches add-on labels not yet
-  in the list. If a page carries no classification anywhere, only its first entry is used, since
-  editions and add-ons cannot then be told apart. Among the
+  Taken from a real page (MLB The Show 26): the game and its editions come first, then an add-on
+  carousel of Stubs packs. Labels **cannot** be matched to prices by proximity — `FULL_GAME` sat
+  14,000 characters from its price and `PREMIUM_EDITION` came *after* its price — while each
+  carousel entry's label sits ~250 characters before its own. What is reliable is position:
+  every game price appears before the first add-on label and every add-on price after it. So the
+  cut is a **character offset**, needing no per-entry attribution, and it also discards add-on
+  labels not yet in the exclusion list — which matters, since that list only grows by being
+  surprised (`ITEM` was the surprise). If a page carries no classification anywhere, only its
+  first entry is used, since editions and add-ons cannot then be told apart. Among the
   remaining game entries the extractor takes the one that is **cheapest to actually pay** — comparing effective prices, not list prices, so
   a Deluxe edition on deep discount beats a full-price Standard and is the price shown. The
   strikethrough is always that same edition's own list price. Otherwise: comparing a Deluxe price in one region against a Standard price in

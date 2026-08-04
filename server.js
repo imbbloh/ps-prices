@@ -163,6 +163,7 @@ function priceBlocks(h) {
       return all.length ? all[all.length - 1][1] : undefined;
     };
     return {
+      at: start,
       base: pick(/"basePrice":"([^"]*)"/),
       disc: pick(/"discountedPrice":"([^"]*)"/),
       cur:  pick(/"currencyCode":"([A-Z]{3})"/) || pickBack(/"currencyCode":"([A-Z]{3})"/),
@@ -180,11 +181,25 @@ function priceBlocks(h) {
 // Entries the store classifies as something other than a playable game --
 // add-ons, currency packs, season passes. Anything not on this list is treated
 // as a game, so an unfamiliar classification is included rather than dropped.
-// Seen on a real page: VIRTUAL_CURRENCY and ITEM both label Stubs packs and
-// add-ons. The game's own entries carry no classification at all, so a game
-// cannot be recognised positively -- only the non-games can be excluded.
+// Classifications seen on a real page: FULL_GAME and PREMIUM_EDITION for the
+// game and its editions, VIRTUAL_CURRENCY and ITEM for the add-ons.
 const NOT_A_GAME = /^(GAME_RELATED|ADD_ON|ADDON|ITEM|VIRTUAL_CURRENCY|CURRENCY|SUBSCRIPTION|SEASON_PASS|PACK)$/;
 const isGame = b => !b.cls || !NOT_A_GAME.test(b.cls);
+
+// Where the add-on carousel begins, as a character offset.
+//
+// Labels cannot be matched to prices by proximity: on a real page FULL_GAME sat
+// 14,000 characters from the price it belongs to, and PREMIUM_EDITION came
+// *after* its price. The carousel is different -- each add-on's label sits ~250
+// characters before its price -- and, crucially, every game price appears
+// before the first add-on label and every add-on price after it. So the split
+// is positional, and needs no per-entry attribution at all.
+function carouselStart(h) {
+  const re = /"storeDisplayClassification":"([A-Z_]+)"/g;
+  let m;
+  while ((m = re.exec(h))) if (NOT_A_GAME.test(m[1])) return m.index;
+  return -1;
+}
 
 // Of several editions, the cheapest to actually pay is the one worth showing --
 // a discounted Deluxe can beat a full-price Standard. Zero-priced entries are
@@ -218,14 +233,13 @@ function grab(h) {
   }
 
   const raw = priceBlocks(h);
-  const classified = raw.some(b => b.cls);
+  const classified = /"storeDisplayClassification"/.test(h);
 
-  // The page lists the game and its editions first, then an add-on carousel.
-  // Cutting at the first entry the store labels as a non-game drops the whole
-  // carousel, including any add-on classification not yet in NOT_A_GAME --
-  // which matters, because the exclusion list only grows by being surprised.
-  const carousel = raw.findIndex(b => b.cls && NOT_A_GAME.test(b.cls));
-  const upTo = carousel > 0 ? raw.slice(0, carousel) : raw;
+  // Everything from the first add-on label onwards is the carousel. This also
+  // discards add-on classifications not yet in NOT_A_GAME, which matters
+  // because that list only ever grows by being surprised.
+  const cut = carouselStart(h);
+  const upTo = cut >= 0 ? raw.filter(b => b.at < cut) : raw;
 
   // Without classifications an add-on cannot be told from an edition, so fall
   // back to the page's own primary entry rather than letting a cheap add-on win.
