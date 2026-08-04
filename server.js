@@ -42,13 +42,21 @@ async function pool(items, n, fn) {
   return out;
 }
 
+// 'es-mx' -> 'es-MX,es;q=0.9'. Asking each storefront in its own language makes
+// it less likely to fall back to a generic (usually US/English) response.
+function acceptLang(loc) {
+  const p = ('' + loc).split('-');
+  if (p.length !== 2) return 'en-US,en;q=0.9';
+  return p[0] + '-' + p[1].toUpperCase() + ',' + p[0] + ';q=0.9';
+}
+
 // Fetch with timeout + bounded retries. Retries only transient failures
 // (network error, 429, 5xx); a 404 means "not in this store", so return null fast.
-async function getText(url, tries = 2) {
+async function getText(url, tries = 2, lang = 'en-US,en;q=0.9') {
   for (let i = 0; i < tries; i++) {
     try {
       const r = await fetch(url, {
-        headers: { 'User-Agent': UA, 'Accept-Language': 'en' },
+        headers: { 'User-Agent': UA, 'Accept-Language': lang },
         signal: AbortSignal.timeout(TIMEOUT)
       });
       if (r.status === 404 || r.status === 410) return null;
@@ -144,8 +152,8 @@ function parseQuery(q) {
 }
 
 // A page only counts as a hit if it actually carries a price.
-async function priceAt(path) {
-  const h = await getText(BASE + path);
+async function priceAt(path, lang) {
+  const h = await getText(BASE + path, 2, lang);
   if (!h) return null;
   const r = grab(h);
   return r.price != null ? r : null;
@@ -159,20 +167,21 @@ async function priceAt(path) {
 // is ...PPSA29343... in the US but ...PPSA29344... in India), which is why the
 // concept goes first and per-region search is the last resort.
 async function region(pid, cid, loc, title) {
+  const lang = acceptLang(loc);
   if (cid) {
-    const r = await priceAt('/' + loc + '/concept/' + cid);
+    const r = await priceAt('/' + loc + '/concept/' + cid, lang);
     if (r) return { ...r, via: 'concept', productId: null };
   }
   if (pid) {
-    const r = await priceAt('/' + loc + '/product/' + pid);
+    const r = await priceAt('/' + loc + '/product/' + pid, lang);
     if (r) return { ...r, via: 'product', productId: pid };
   }
   if (title) {
-    const h = await getText(BASE + '/' + loc + '/search/' + encodeURIComponent(title));
+    const h = await getText(BASE + '/' + loc + '/search/' + encodeURIComponent(title), 2, lang);
     if (h) {
       for (const lid of productIds(h).slice(0, 3)) {
-        if (lid === pid) continue;                      // already tried in tier 1
-        const r = await priceAt('/' + loc + '/product/' + lid);
+        if (lid === pid) continue;                      // already tried in tier 2
+        const r = await priceAt('/' + loc + '/product/' + lid, lang);
         if (r) return { ...r, via: 'search', productId: lid };
       }
     }
@@ -304,5 +313,5 @@ if (require.main === module) {
 
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
-  parseQuery, getText, priceAt, LOCALES, EXPECT, BASE
+  parseQuery, acceptLang, getText, priceAt, LOCALES, EXPECT, BASE
 };

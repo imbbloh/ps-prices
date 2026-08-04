@@ -91,6 +91,7 @@
       <thead><tr><th>#</th><th>Region</th><th class="num">Local price</th><th class="num" id="convHead">≈ SGD</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
+    <div class="foot" id="note"></div>
   </div>
 
   <div class="foot">
@@ -238,6 +239,16 @@ function render(rows, gameName, target){
   noconv.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num">'+x.local+'</td><td class="num" style="color:var(--dim)">no rate</td></tr>'; });
   bad.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num" colspan="2" style="color:var(--warn)">not available</td></tr>'; });
   $('rows').innerHTML=h;
+
+  // Unranked rows are easy to misread as "missing", so say what they are.
+  let n='';
+  if(redir.length) n+='<div><b>'+redir.map(x=>FLAG[x.r]+' '+x.r).join(', ')+'</b> priced in '
+    +[...new Set(redir.map(x=>x.cur))].join('/')+' rather than the local currency, so '
+    +(redir.length>1?'they are':'it is')+' listed below the ranking and excluded from “cheapest”. '
+    +'That usually means the store served a fallback (often US) price rather than a genuine local one.</div>';
+  if(noconv.length) n+='<div style="margin-top:6px">'+noconv.length+' region(s) have a price but no FX rate to convert with.</div>';
+  if(bad.length) n+='<div style="margin-top:6px"><b>'+bad.map(x=>x.r).join(', ')+'</b> returned no price — not sold there, or the store didn’t respond. Try pasting the game’s store URL for an exact match.</div>';
+  $('note').innerHTML=n;
 }
 
 $('go').addEventListener('click',run);

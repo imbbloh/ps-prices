@@ -1,6 +1,6 @@
 // Offline unit tests for the price parser + resolver helpers (no network needed).
 // Run: node test.js
-const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery } = require('./server.js');
+const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang } = require('./server.js');
 
 let fails = 0;
 function check(ok, label, detail) {
@@ -87,6 +87,14 @@ for (const [inp, exp] of pq) {
   check(got.conceptId === exp.conceptId && got.productId === exp.productId && got.title === exp.title,
     'parseQuery ' + JSON.stringify(inp).padEnd(58), '-> ' + JSON.stringify(got));
 }
+
+// acceptLang(): each storefront should be asked in its own language, so it is
+// less likely to serve a generic US/English (and USD-priced) response.
+check(acceptLang('es-mx') === 'es-MX,es;q=0.9', 'acceptLang es-mx', '-> ' + acceptLang('es-mx'));
+check(acceptLang('ja-jp') === 'ja-JP,ja;q=0.9', 'acceptLang ja-jp', '-> ' + acceptLang('ja-jp'));
+check(acceptLang('pt-br') === 'pt-BR,pt;q=0.9', 'acceptLang pt-br', '-> ' + acceptLang('pt-br'));
+check(acceptLang('en-us') === 'en-US,en;q=0.9', 'acceptLang en-us', '-> ' + acceptLang('en-us'));
+check(acceptLang('garbage') === 'en-US,en;q=0.9', 'acceptLang malformed -> default');
 
 // pool(): preserves input order and never exceeds the concurrency cap
 (async () => {
