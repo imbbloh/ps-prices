@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PlayStation Store — Regional Price Finder</title>
+<style>
+  :root{--bg:#0b0f1a;--panel:#141a2b;--panel2:#1b2338;--line:#26304d;--txt:#e8ecf6;--dim:#94a0bd;--accent:#5b8cff;--accent2:#7c5cff;--good:#27d17c;--warn:#ffb454}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--txt);line-height:1.45}
+  .wrap{max-width:720px;margin:0 auto;padding:18px 14px 60px}
+  header{background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:18px;padding:20px 18px;margin-bottom:16px;box-shadow:0 10px 30px rgba(91,140,255,.25)}
+  header h1{margin:0 0 4px;font-size:1.3rem}
+  header p{margin:0;font-size:.85rem;opacity:.92}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+  label{display:block;font-size:.78rem;color:var(--dim);margin-bottom:6px}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  input,select{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:12px;border-radius:12px;font-size:1rem;outline:none}
+  input[type=text]{flex:1 1 200px;min-width:0}
+  input:focus{border-color:var(--accent)}
+  button{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:0;cursor:pointer;padding:12px 18px;border-radius:12px;font-size:1rem;font-weight:600}
+  button:disabled{opacity:.55;cursor:progress}
+  .settings{font-size:.78rem;color:var(--accent);cursor:pointer;margin-top:10px;display:inline-block}
+  .setbox{display:none;margin-top:10px}
+  .setbox.open{display:block}
+  .status{font-size:.85rem;color:var(--dim);margin:12px 2px;min-height:1.2em}
+  .sum{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .tile{flex:1 1 150px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .tile .k{font-size:.7rem;color:var(--dim);text-transform:uppercase;letter-spacing:.5px}
+  .tile .v{font-size:1.1rem;font-weight:700;margin-top:2px}
+  .tile .v.good{color:var(--good)}
+  table{width:100%;border-collapse:collapse;margin-top:4px}
+  th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-size:.92rem}
+  th{color:var(--dim);font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.6px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  tr.best td{background:linear-gradient(90deg,rgba(39,209,124,.14),transparent)}
+  .flag{margin-right:6px}
+  .badge{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:6px}
+  .badge.best{background:var(--good);color:#04220f}
+  .badge.warn{background:var(--warn);color:#3a2600}
+  .rank{color:var(--dim);width:1.5em;display:inline-block}
+  .conv{font-weight:700}
+  .foot{font-size:.72rem;color:var(--dim);margin-top:16px;line-height:1.6}
+  .foot a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🎮 PlayStation Store — Regional Price Finder</h1>
+    <p>Type a game title, hit Find prices, and see every region's PS Store price in one currency, cheapest first.</p>
+  </header>
+
+  <div class="card">
+    <label for="game">Game title</label>
+    <div class="row">
+      <input id="game" type="text" placeholder="e.g. 007 First Light" autocomplete="off">
+      <select id="cur" title="Display currency">
+        <option value="SGD" selected>SGD</option>
+        <option value="USD">USD</option>
+        <option value="MYR">MYR</option>
+        <option value="EUR">EUR</option>
+        <option value="GBP">GBP</option>
+        <option value="AUD">AUD</option>
+        <option value="INR">INR</option>
+      </select>
+      <button id="go">Find prices</button>
+    </div>
+    <div class="settings" id="setToggle">▸ Backend settings</div>
+    <div class="setbox" id="setBox">
+      <label for="backend" style="margin-top:8px">Backend URL (your Render service)</label>
+      <input id="backend" type="text" style="width:100%" placeholder="https://your-service.onrender.com" autocomplete="off">
+      <div class="foot" style="margin-top:6px">Paste the URL of your deployed Render backend (see README). Saved in this browser.</div>
+    </div>
+  </div>
+
+  <div class="status" id="status">Ready.</div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <div class="sum" id="summary"></div>
+    <table>
+      <thead><tr><th>#</th><th>Region</th><th class="num">Local price</th><th class="num" id="convHead">≈ SGD</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+
+  <div class="foot">
+    <div><b>How it works:</b> the title is sent to your Render backend, which reads each region's official PlayStation Store price; this page then converts to your chosen currency using live rates (open.er-api.com). A <b>⚠</b> marks a store listing in an unexpected currency (e.g. Mexico in USD).</div>
+    <div style="margin-top:8px"><b>Note:</b> buying a cheaper region's price needs a PSN account set to that region + its gift-card credit.</div>
+    <div id="fxline" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+const FLAG={US:'🇺🇸',UA:'🇺🇦',IN:'🇮🇳',JP:'🇯🇵',BR:'🇧🇷',TR:'🇹🇷',ID:'🇮🇩',MY:'🇲🇾',TW:'🇹🇼',HK:'🇭🇰',KR:'🇰🇷',ZA:'🇿🇦',PL:'🇵🇱',NO:'🇳🇴',CA:'🇨🇦',AU:'🇦🇺',MX:'🇲🇽',GB:'🇬🇧',DE:'🇩🇪',SG:'🇸🇬'};
+const $=id=>document.getElementById(id);
+const store={ get(k){try{return localStorage.getItem(k)}catch(e){return null}}, set(k,v){try{localStorage.setItem(k,v)}catch(e){}} };
+
+$('backend').value = store.get('ps_backend') || '';
+$('setToggle').onclick=()=>$('setBox').classList.toggle('open');
+$('backend').addEventListener('change',()=>store.set('ps_backend',$('backend').value.trim()));
+
+function fmt(cur,val){ try{return new Intl.NumberFormat(undefined,{style:'currency',currency:cur,maximumFractionDigits:2}).format(val);}catch(e){return val.toLocaleString()+' '+cur;} }
+
+async function run(){
+  const title=$('game').value.trim();
+  const target=$('cur').value;
+  let backend=($('backend').value||store.get('ps_backend')||'').trim().replace(/\/$/,'');
+  if(!title){ $('status').textContent='Type a game title.'; return; }
+  if(!backend){ $('status').innerHTML='Set your <b>Backend URL</b> under “Backend settings” first (see README).'; $('setBox').classList.add('open'); return; }
+
+  $('go').disabled=true; $('resultCard').style.display='none'; $('rows').innerHTML=''; $('summary').innerHTML='';
+  $('status').textContent='Looking up “'+title+'”…';
+  try{
+    const [pr, fxRes] = await Promise.all([
+      fetch(backend+'/prices?title='+encodeURIComponent(title)).then(r=>r.json()),
+      fetch('https://open.er-api.com/v6/latest/USD').then(r=>r.json())
+    ]);
+    if(pr.error){ $('status').innerHTML='<span style="color:var(--warn)">'+pr.error+'</span>'; $('go').disabled=false; return; }
+    const fx=fxRes.rates;
+    const rate=c=>fx[c];
+    const toTarget=(price,cur)=> (rate(cur)&&rate(target)) ? (price/rate(cur))*rate(target) : null;
+
+    const rows=pr.results.map(x=>{
+      if(x.price==null) return {r:x.region, local:'—', conv:null, red:false};
+      return {r:x.region, cur:x.currency, price:x.price, local:fmt(x.currency,x.price), conv:toTarget(x.price,x.currency), red:x.redirected};
+    });
+    render(rows, pr.title, target);
+    const ok=rows.filter(x=>x.conv!=null && !x.red).length;
+    $('status').textContent='Done — '+ok+'/'+pr.results.length+' regions priced for “'+pr.title+'”.';
+    $('fxline').innerHTML='Live FX: open.er-api.com · Prices: store.playstation.com · '+new Date().toLocaleString();
+  }catch(e){
+    $('status').innerHTML='<span style="color:var(--warn)">Error contacting backend: '+e.message+'. Check the Backend URL.</span>';
+  }
+  $('go').disabled=false;
+}
+
+function render(rows, gameName, target){
+  $('convHead').textContent='≈ '+target;
+  const good=rows.filter(x=>x.conv!=null && !x.red).sort((a,b)=>a.conv-b.conv);
+  const redir=rows.filter(x=>x.red && x.conv!=null);
+  const bad=rows.filter(x=>x.conv==null);
+  $('resultCard').style.display='block';
+
+  if(good.length){
+    const c=good[0], sg=good.find(x=>x.r==='SG'), home=good.find(x=>x.r===target)||sg;
+    $('summary').innerHTML=
+      '<div class="tile"><div class="k">Cheapest</div><div class="v good">'+FLAG[c.r]+' '+c.r+' · '+fmt(target,c.conv)+'</div></div>'+
+      (home?'<div class="tile"><div class="k">'+home.r+'</div><div class="v">'+fmt(target,home.conv)+'</div></div>':'')+
+      (home?'<div class="tile"><div class="k">Save vs '+home.r+'</div><div class="v good">'+fmt(target,Math.max(0,home.conv-c.conv))+'</div></div>':'');
+  }
+  let h='';
+  good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+(i===0?'<span class="badge best">CHEAPEST</span>':'')+'</td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
+  redir.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'<span class="badge warn">'+x.cur+'</span></td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
+  bad.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num" colspan="2" style="color:var(--warn)">not available</td></tr>'; });
+  $('rows').innerHTML=h;
+}
+
+$('go').addEventListener('click',run);
+$('game').addEventListener('keydown',e=>{ if(e.key==='Enter') run(); });
+</script>
+</body>
+</html>
