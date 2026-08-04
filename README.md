@@ -95,6 +95,10 @@ all it still shows every store's local price rather than an empty table.
 - **Diagnosing missing regions:** `node debug.js "<title | store URL | conceptId>" [REGION...]`
   prints, per region, which tier was tried and exactly how it failed — a page that never
   loaded, a page that loaded without a price, or a region search with no product links.
+- **Diagnosing a wrong price:** `node debug.js --prices "<title | store URL>" [REGION...]`
+  lists every priced entry on the page with its classification, and marks which one was chosen.
+  It says explicitly when a page carries no classification, which is the case where an add-on
+  or the wrong edition can win.
 - **Diagnosing language detection:** `node debug.js --langs "<title | store URL>" [REGION...]`
   shows what each store page says about languages *in its own words* — the label matched, the
   list read, and the resulting flag. Each storefront localizes both: Brazil says `Voz` /
@@ -164,8 +168,13 @@ all it still shows every store's local price rather than an empty table.
 
 - Buying a cheaper region's price requires a PSN account registered to that region plus that
   region's gift-card credit — card payments are geo-checked.
-- **Editions.** A concept page lists every edition, so the extractor reads them all and takes
-  the one that is **cheapest to actually pay** — comparing effective prices, not list prices, so
+- **Editions and add-ons.** A concept page lists the game's editions *and its add-ons*, and an
+  add-on is always cheaper — so picking the cheapest entry outright returns a piece of DLC.
+  Entries are filtered by the store's own `storeDisplayClassification` (`GAME_RELATED`,
+  `ADD_ON`, currency packs and subscriptions are dropped; an unfamiliar classification is kept,
+  so a new one is never silently discarded). If a page carries no classification at all, only
+  its first entry is used, since editions and add-ons cannot then be told apart. Among the
+  remaining game entries the extractor takes the one that is **cheapest to actually pay** — comparing effective prices, not list prices, so
   a Deluxe edition on deep discount beats a full-price Standard and is the price shown. The
   strikethrough is always that same edition's own list price. Otherwise: comparing a Deluxe price in one region against a Standard price in
   another is not a comparison. Zero-priced entries are skipped when anything paid exists, so a

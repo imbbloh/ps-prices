@@ -134,33 +134,59 @@ function parseNum(raw) {
 // game. Keys sit together in one small flat object, so read a window around
 // each "basePrice" rather than trying to brace-match JSON.
 function priceBlocks(h) {
-  const at = [];
-  const re = /"basePrice"/g;
+  const at = [], clsAt = [];
   let m;
+  const re = /"basePrice"/g;
   while ((m = re.exec(h)) && at.length < 40) at.push(m.index);
+  const cre = /"storeDisplayClassification"/g;
+  while ((m = cre.exec(h))) clsAt.push(m.index);
 
   return at.map((start, i) => {
-    // Each block runs from its own "basePrice" to the next one. Reading
-    // backwards would re-read the previous edition's price, which is exactly
-    // how every edition came out looking like the first one.
-    const end = Math.min(i + 1 < at.length ? at[i + 1] : h.length, start + 800);
+    // Each entry runs from its own "basePrice" up to whichever comes first: the
+    // next price or the next classification. A classification leads an entry,
+    // so without that second bound the window swallows the following entry's
+    // label and every price ends up wearing its neighbour's classification.
+    const nextCls = clsAt.find(x => x > start);
+    const end = Math.min(
+      i + 1 < at.length ? at[i + 1] : h.length,
+      nextCls == null ? h.length : nextCls,
+      start + 800);
     const w = h.slice(start, end);
-    const before = h.slice(Math.max(0, start - 200), start);   // currency may precede
-    const pick = (r, src) => ((src || w).match(r) || [])[1];
+
+    // Fields written before "basePrice" belong to this entry only if they are
+    // the nearest ones; a backward window reaches into the previous entry, so
+    // take the LAST match rather than the first.
+    const before = h.slice(i > 0 ? at[i - 1] : Math.max(0, start - 400), start);
+    const pick = r => (w.match(r) || [])[1];
+    const pickBack = r => {
+      const all = [...before.matchAll(new RegExp(r.source, 'g'))];
+      return all.length ? all[all.length - 1][1] : undefined;
+    };
     return {
       base: pick(/"basePrice":"([^"]*)"/),
       disc: pick(/"discountedPrice":"([^"]*)"/),
-      cur:  pick(/"currencyCode":"([A-Z]{3})"/) || pick(/"currencyCode":"([A-Z]{3})"/, before),
-      text: pick(/"discountText":"([^"]*)"/)
+      cur:  pick(/"currencyCode":"([A-Z]{3})"/) || pickBack(/"currencyCode":"([A-Z]{3})"/),
+      text: pick(/"discountText":"([^"]*)"/),
+      // What the store calls this entry. A concept page lists add-ons beside
+      // the game, and an add-on is always cheaper, so without this the cheapest
+      // entry on the page is a piece of DLC rather than the game.
+      cls:  pickBack(/"storeDisplayClassification":"([A-Z_]+)"/) ||
+            pick(/"storeDisplayClassification":"([A-Z_]+)"/) || null,
+      name: pick(/"name":"([^"]{0,120})"/) || null
     };
   });
 }
 
-// Of several editions, the base game is the one worth comparing across regions:
-// a Deluxe price in one region against a Standard price in another is not a
-// comparison. Zero-priced entries are skipped when anything paid exists, so a
-// free demo or trial listed alongside the game does not win -- unless the game
-// really is free, in which case zero is all there is.
+// Entries the store classifies as something other than a playable game --
+// add-ons, currency packs, season passes. Anything not on this list is treated
+// as a game, so an unfamiliar classification is included rather than dropped.
+const NOT_A_GAME = /^(GAME_RELATED|ADD_ON|ADDON|VIRTUAL_CURRENCY|SUBSCRIPTION|SEASON_PASS)$/;
+const isGame = b => !b.cls || !NOT_A_GAME.test(b.cls);
+
+// Of several editions, the cheapest to actually pay is the one worth showing --
+// a discounted Deluxe can beat a full-price Standard. Zero-priced entries are
+// skipped when anything paid exists, so a free demo or trial listed alongside
+// the game does not win, unless the game really is free.
 function cheapest(cands) {
   const usable = cands.filter(c => c.price != null);
   if (!usable.length) return null;
@@ -188,11 +214,18 @@ function grab(h) {
     } catch (e) {}
   }
 
-  const blocks = priceBlocks(h).map(b => {
+  const raw = priceBlocks(h);
+  const classified = raw.some(b => b.cls);
+  // With classifications available, keep only the game entries. Without them we
+  // cannot tell an add-on from an edition, so fall back to the first block --
+  // the page's own primary entry -- rather than letting a cheap add-on win.
+  const usable = classified ? raw.filter(isGame) : raw.slice(0, 1);
+
+  const blocks = usable.map(b => {
     const base = parseNum(b.base), disc = parseNum(b.disc);
     return (disc != null && (base == null || disc < base))
-      ? { price: disc, original: base, cur: b.cur || null, discount: b.text || null }
-      : { price: base, original: null, cur: b.cur || null, discount: null };
+      ? { price: disc, original: base, cur: b.cur || null, discount: b.text || null, name: b.name, cls: b.cls }
+      : { price: base, original: null, cur: b.cur || null, discount: null, name: b.name, cls: b.cls };
   });
 
   // JSON-LD describes the product and its editions; the embedded blocks can
@@ -223,7 +256,9 @@ function grab(h) {
     price: pick.price, cur, name: name0[0] || null,
     original: pick.original != null && pick.original > pick.price ? pick.original : null,
     discount: pick.original != null && pick.original > pick.price ? discount : null,
-    editions: Math.max(ld.length, blocks.length)     // how many priced entries the page carried
+    edition: pick.name || null,                      // best-effort label for the entry chosen
+    editions: Math.max(ld.length, blocks.length),    // priced game entries considered
+    onPage: raw.length                               // every priced entry, add-ons included
   };
 }
 

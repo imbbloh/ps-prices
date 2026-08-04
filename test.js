@@ -94,11 +94,12 @@ check(grab(free).price === null, 'grab() unparseable "Free" -> null, not 0');
 // Knight" returned the Deluxe Edition price, because the extractor took the
 // first price it found and the store listed Deluxe first. The base game is the
 // only price comparable across regions.
-const editions =
-  '<html>' +
-  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountedPrice":"$99.99"}}' +   // Deluxe, listed first
-  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$69.99"}}' +   // Standard
-  '{"price":{"basePrice":"$129.99","currencyCode":"USD","discountedPrice":"$129.99"}}' + // Ultimate
+const ed = (base, disc, cls) => '{"storeDisplayClassification":"' + cls +
+  '","price":{"basePrice":"' + base + '","currencyCode":"USD","discountedPrice":"' + disc + '"}}';
+const editions = '<html>' +
+  ed('$99.99', '$99.99', 'FULL_GAME') +      // Deluxe, listed first
+  ed('$69.99', '$69.99', 'FULL_GAME') +      // Standard
+  ed('$129.99', '$129.99', 'FULL_GAME') +    // Ultimate
   '</html>';
 const ED = grab(editions);
 check(ED.price === 69.99, 'grab() picks the base edition, not the first listed', '-> ' + ED.price);
@@ -113,10 +114,7 @@ const LE = grab(ldEditions);
 check(LE.price === 69.99 && LE.cur === 'USD', 'grab() picks the cheapest JSON-LD offer', '-> ' + LE.price);
 
 // A free demo alongside a paid game must not win.
-const demo = '<html>' +
-  '{"price":{"basePrice":"Free","currencyCode":"USD","discountedPrice":"$0.00"}}' +
-  '{"price":{"basePrice":"$59.99","currencyCode":"USD","discountedPrice":"$59.99"}}' +
-  '</html>';
+const demo = '<html>' + ed('Free', '$0.00', 'FULL_GAME') + ed('$59.99', '$59.99', 'FULL_GAME') + '</html>';
 check(grab(demo).price === 59.99, 'grab() ignores a free demo when a paid edition exists', '-> ' + grab(demo).price);
 
 // ...but a genuinely free game still reports 0.
@@ -124,10 +122,7 @@ const reallyFree = '<html>{"price":{"basePrice":"$0.00","currencyCode":"USD","di
 check(grab(reallyFree).price === 0, 'grab() keeps 0 for a genuinely free game', '-> ' + grab(reallyFree).price);
 
 // The cheapest edition on sale keeps its own original, not a pricier edition's.
-const mixed = '<html>' +
-  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountedPrice":"$79.99"}}' +
-  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$49.99"}}' +
-  '</html>';
+const mixed = '<html>' + ed('$99.99', '$79.99', 'FULL_GAME') + ed('$69.99', '$49.99', 'FULL_GAME') + '</html>';
 const MX2 = grab(mixed);
 check(MX2.price === 49.99 && MX2.original === 69.99,
   'grab() pairs the sale price with its own original', '-> ' + MX2.price + ' was ' + MX2.original);
@@ -137,20 +132,41 @@ check(MX2.discount === '-29%', 'grab() derives the discount from the same editio
 // edition on deep discount can undercut a full-price Standard, and that is the
 // price worth buying.
 const deluxeOnSale = '<html>' +
-  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountText":"-60%","discountedPrice":"$39.99"}}' +
-  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$69.99"}}' +
-  '</html>';
+  '{"storeDisplayClassification":"FULL_GAME","price":{"basePrice":"$99.99","currencyCode":"USD","discountText":"-60%","discountedPrice":"$39.99"}}' +
+  ed('$69.99', '$69.99', 'FULL_GAME') + '</html>';
 const DS = grab(deluxeOnSale);
 check(DS.price === 39.99, 'grab() a discounted Deluxe beats a full-price Standard', '-> ' + DS.price);
 check(DS.original === 99.99 && DS.discount === '-60%',
   'grab() strikes through the chosen edition\'s own list price', '-> was ' + DS.original + ' ' + DS.discount);
 
 // ...and the reverse: no discount deep enough, so the base edition wins.
-const shallow = '<html>' +
-  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountedPrice":"$89.99"}}' +
-  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$69.99"}}' +
-  '</html>';
+const shallow = '<html>' + ed('$99.99', '$89.99', 'FULL_GAME') + ed('$69.99', '$69.99', 'FULL_GAME') + '</html>';
 check(grab(shallow).price === 69.99, 'grab() base edition wins when the Deluxe discount is shallow', '-> ' + grab(shallow).price);
+
+// Add-ons sit on the same concept page and are always cheaper than the game,
+// so picking the cheapest entry outright returned a piece of DLC.
+const withAddons = '<html>' +
+  ed('$69.99', '$69.99', 'FULL_GAME') +
+  ed('$9.99',  '$9.99',  'GAME_RELATED') +      // character pack
+  ed('$4.99',  '$4.99',  'ADD_ON') +            // skin
+  ed('$99.99', '$59.99', 'FULL_GAME') +         // Deluxe, on sale but still dearer
+  '</html>';
+const WA = grab(withAddons);
+check(WA.price === 59.99, 'grab() ignores add-ons and takes the cheapest game', '-> ' + WA.price);
+check(WA.editions === 2 && WA.onPage === 4, 'grab() counts games separately from everything priced',
+  '-> ' + WA.editions + ' games of ' + WA.onPage + ' entries');
+
+// An unfamiliar classification must be treated as a game, not silently dropped.
+const oddCls = '<html>' + ed('$69.99', '$69.99', 'SOMETHING_NEW') + ed('$9.99', '$9.99', 'GAME_RELATED') + '</html>';
+check(grab(oddCls).price === 69.99, 'grab() treats an unknown classification as a game', '-> ' + grab(oddCls).price);
+
+// With no classification anywhere, editions and add-ons are indistinguishable,
+// so fall back to the page's first entry rather than letting an add-on win.
+const noCls = '<html>' +
+  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$69.99"}}' +
+  '{"price":{"basePrice":"$4.99","currencyCode":"USD","discountedPrice":"$4.99"}}' +
+  '</html>';
+check(grab(noCls).price === 69.99, 'grab() unclassified page falls back to the first entry', '-> ' + grab(noCls).price);
 
 // Language support. Screen languages (subtitles/UI) decide whether a
 // foreign-region copy is playable; "unknown" must stay distinct from "no".

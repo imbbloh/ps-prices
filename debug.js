@@ -3,6 +3,7 @@
 //   node debug.js "Beast of Reincarnation"           # all regions
 //   node debug.js "Beast of Reincarnation" SG JP DE  # just these
 //   node debug.js --langs "<url|title>" BR JP        # language spec only
+//   node debug.js --prices "<url|title>" US SG       # every priced entry on the page
 //
 // --langs prints what each store page actually says about languages: the label
 // it matched, the list it read, and the resulting english flag. When a region
@@ -14,11 +15,13 @@
 // search tier is the one falling over.
 
 const { getText, grab, productIds, conceptId, parseQuery, acceptLang, languages, textLines,
-        LOCALES, EXPECT, BASE } = require('./server.js');
+        priceBlocks, LOCALES, EXPECT, BASE } = require('./server.js');
 
 const argv = process.argv.slice(2);
 const LANGS_ONLY = argv[0] === '--langs';
 if (LANGS_ONLY) argv.shift();
+const PRICES_ONLY = argv[0] === '--prices';
+if (PRICES_ONLY) argv.shift();
 process.argv = [process.argv[0], process.argv[1], ...argv];
 
 const query = process.argv[2];
@@ -78,6 +81,35 @@ function note(rk, r) {
     console.log('title          : ' + (title || 'unknown (tier 3 will be skipped)'));
   }
   console.log('');
+
+  // --prices: every priced entry a page carries, so a concept page listing the
+  // game beside its add-ons is visible rather than guessed at.
+  if (PRICES_ONLY) {
+    for (const rk of regions) {
+      const loc = LOCALES[rk], lang = acceptLang(loc);
+      const h = cid ? await getText(BASE + '/' + loc + '/concept/' + cid, 1, lang)
+                    : (pid ? await getText(BASE + '/' + loc + '/product/' + pid, 1, lang) : null);
+      if (!h) { console.log(rk + ' (' + loc + ')  =>  no page'); continue; }
+
+      const blocks = priceBlocks(h);
+      const g = grab(h);
+      console.log(rk + ' (' + loc + ')  =>  chosen ' + g.price + ' ' + (g.cur || '') +
+        (g.original ? '  (was ' + g.original + ' ' + (g.discount || '') + ')' : '') +
+        '   [' + g.editions + ' game entr' + (g.editions === 1 ? 'y' : 'ies') + ' of ' + g.onPage + ' priced]');
+      if (!blocks.length) console.log('   no "basePrice" blocks — price came from JSON-LD only');
+      blocks.forEach((b, i) => console.log(
+        '   ' + String(i + 1).padStart(2) + '  ' + String(b.base).padEnd(12) +
+        'sale ' + String(b.disc).padEnd(12) +
+        (b.cls || 'NO CLASSIFICATION').padEnd(20) +
+        (b.name ? b.name.slice(0, 40) : '')));
+      if (!blocks.some(b => b.cls)) {
+        console.log('   ^ no storeDisplayClassification anywhere: add-ons cannot be told from');
+        console.log('     editions, so only the first entry is used. Paste this output to fix that.');
+      }
+      console.log('');
+    }
+    return;
+  }
 
   // --langs: report what each store page says about languages, in its own words.
   if (LANGS_ONLY) {
