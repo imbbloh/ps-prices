@@ -14,12 +14,28 @@ const LOCALES = {
   PL:'pl-pl', NO:'en-no', CA:'en-ca', AU:'en-au', MX:'es-mx', GB:'en-gb',
   DE:'de-de', SG:'en-sg'
 };
-// expected currency per region (to flag stores that list in another currency)
+// each region's own currency
 const EXPECT = {
   US:'USD', UA:'UAH', IN:'INR', JP:'JPY', BR:'BRL', TR:'TRY', ID:'IDR', MY:'MYR',
   TW:'TWD', HK:'HKD', KR:'KRW', ZA:'ZAR', PL:'PLN', NO:'NOK', CA:'CAD', AU:'AUD',
   MX:'MXN', GB:'GBP', DE:'EUR', SG:'SGD'
 };
+
+// Stores that legitimately list in a currency other than their region's own.
+// The PS Store Mexico prices plenty of titles in USD; that is a real price a
+// Mexican account pays, so it belongs in the ranking rather than set aside.
+const ALSO_OK = { MX: ['USD'] };
+
+// Ranked? A price counts if it is in the region's own currency or one of that
+// region's accepted alternatives.
+function isAccepted(rk, cur) {
+  return cur === EXPECT[rk] || (ALSO_OK[rk] || []).includes(cur);
+}
+
+// Worth labelling in the UI, so a USD row is not mistaken for a peso one.
+function isForeign(rk, cur) {
+  return cur != null && cur !== EXPECT[rk];
+}
 
 const cache = new Map();               // title(lower) -> { ts, data }
 const inflight = new Map();            // title(lower) -> Promise (dedupe concurrent lookups)
@@ -235,8 +251,9 @@ async function lookup(query) {
       region: rk,
       currency: r.cur,
       price: r.price,
-      redirected: r.cur != null && r.cur !== EXPECT[rk],
-      via: r.via,                    // 'product' | 'concept' | 'search' | null
+      redirected: r.cur != null && !isAccepted(rk, r.cur),   // excluded from ranking
+      foreign: isForeign(rk, r.cur),                         // ranked, but not the local currency
+      via: r.via,                    // 'concept' | 'product' | 'search' | null
       productId: r.productId
     };
   });
@@ -313,5 +330,5 @@ if (require.main === module) {
 
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
-  parseQuery, acceptLang, getText, priceAt, LOCALES, EXPECT, BASE
+  parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, LOCALES, EXPECT, ALSO_OK, BASE
 };

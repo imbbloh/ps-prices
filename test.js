@@ -1,6 +1,7 @@
 // Offline unit tests for the price parser + resolver helpers (no network needed).
 // Run: node test.js
-const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang } = require('./server.js');
+const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
+        isAccepted, isForeign } = require('./server.js');
 
 let fails = 0;
 function check(ok, label, detail) {
@@ -95,6 +96,19 @@ check(acceptLang('ja-jp') === 'ja-JP,ja;q=0.9', 'acceptLang ja-jp', '-> ' + acce
 check(acceptLang('pt-br') === 'pt-BR,pt;q=0.9', 'acceptLang pt-br', '-> ' + acceptLang('pt-br'));
 check(acceptLang('en-us') === 'en-US,en;q=0.9', 'acceptLang en-us', '-> ' + acceptLang('en-us'));
 check(acceptLang('garbage') === 'en-US,en;q=0.9', 'acceptLang malformed -> default');
+
+// Currency policy: Mexico lists many titles in USD, which is a real price a
+// Mexican account pays, so it is ranked — but still labelled as USD.
+check(isAccepted('MX', 'USD') === true,  'MX in USD is ranked');
+check(isForeign('MX', 'USD') === true,   'MX in USD is labelled foreign');
+check(isAccepted('MX', 'MXN') === true,  'MX in MXN is ranked');
+check(isForeign('MX', 'MXN') === false,  'MX in MXN is not labelled');
+check(isAccepted('MX', 'EUR') === false, 'MX in EUR is still set aside');
+// no other region gets the exemption
+check(isAccepted('DE', 'USD') === false, 'DE in USD is set aside');
+check(isAccepted('SG', 'SGD') === true,  'SG in SGD is ranked');
+check(isForeign('SG', 'SGD') === false,  'SG in SGD is not labelled');
+check(isForeign('US', null) === false,   'missing currency is not labelled foreign');
 
 // pool(): preserves input order and never exceeds the concurrency cap
 (async () => {

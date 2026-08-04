@@ -46,6 +46,7 @@
   .badge{display:inline-block;font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:6px}
   .badge.best{background:var(--good);color:#04220f}
   .badge.warn{background:var(--warn);color:#3a2600}
+  .badge.info{background:var(--panel2);color:var(--dim);border:1px solid var(--line)}
   .rank{color:var(--dim);width:1.5em;display:inline-block}
   .conv{font-weight:700}
   .foot{font-size:.72rem;color:var(--dim);margin-top:16px;line-height:1.6}
@@ -95,7 +96,7 @@
   </div>
 
   <div class="foot">
-    <div><b>How it works:</b> the title is sent to your Render backend, which reads each region's official PlayStation Store price; this page then converts to your chosen currency using live rates (open.er-api.com). A <b>⚠</b> marks a store listing in an unexpected currency (e.g. Mexico in USD).</div>
+    <div><b>How it works:</b> the title is sent to your Render backend, which reads each region's official PlayStation Store price; this page then converts to your chosen currency using live rates (open.er-api.com). A grey currency badge (e.g. <b>USD</b> on Mexico) means that store lists in a currency other than its own — still a real price, so it is ranked normally. A <b>⚠</b> marks a currency that isn't valid for the region at all; those rows sit below the ranking.</div>
     <div style="margin-top:8px"><b>Missing regions?</b> Search has to guess which store entry you meant. For an exact match, paste the game's store URL instead — e.g. <code>store.playstation.com/en-in/concept/10014719</code>. Concept links work in every region, so they resolve far more stores than a title search.</div>
     <div style="margin-top:8px"><b>Note:</b> buying a cheaper region's price needs a PSN account set to that region + its gift-card credit.</div>
     <div id="fxline" style="margin-top:8px"></div>
@@ -189,8 +190,8 @@ async function run(){
     const toTarget=(price,cur)=> (rate(cur)&&rate(target)) ? (price/rate(cur))*rate(target) : null;
 
     const rows=pr.results.map(x=>{
-      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false};
-      return {r:x.region, cur:x.currency, price:x.price, local:fmt(x.currency,x.price), conv:toTarget(x.price,x.currency), red:x.redirected};
+      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false, foreign:false};
+      return {r:x.region, cur:x.currency, price:x.price, local:fmt(x.currency,x.price), conv:toTarget(x.price,x.currency), red:x.redirected, foreign:x.foreign};
     });
     render(rows, pr.title, target);
 
@@ -234,7 +235,7 @@ function render(rows, gameName, target){
       (home?'<div class="tile"><div class="k">Save vs '+home.r+'</div><div class="v good">'+fmt(target,Math.max(0,home.conv-c.conv))+'</div></div>':'');
   }
   let h='';
-  good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+(i===0?'<span class="badge best">CHEAPEST</span>':'')+'</td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
+  good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+(i===0?'<span class="badge best">CHEAPEST</span>':'')+(x.foreign?'<span class="badge info">'+x.cur+'</span>':'')+'</td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
   redir.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'<span class="badge warn">'+x.cur+'</span></td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
   noconv.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num">'+x.local+'</td><td class="num" style="color:var(--dim)">no rate</td></tr>'; });
   bad.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num" colspan="2" style="color:var(--warn)">not available</td></tr>'; });
@@ -242,7 +243,10 @@ function render(rows, gameName, target){
 
   // Unranked rows are easy to misread as "missing", so say what they are.
   let n='';
-  if(redir.length) n+='<div><b>'+redir.map(x=>FLAG[x.r]+' '+x.r).join(', ')+'</b> priced in '
+  const foreignRanked=good.filter(x=>x.foreign);
+  if(foreignRanked.length) n+='<div><b>'+foreignRanked.map(x=>FLAG[x.r]+' '+x.r+' ('+x.cur+')').join(', ')
+    +'</b> — that store lists in a currency other than its own. It is a real price for that region, so it is ranked normally.</div>';
+  if(redir.length) n+='<div style="margin-top:6px"><b>'+redir.map(x=>FLAG[x.r]+' '+x.r).join(', ')+'</b> priced in '
     +[...new Set(redir.map(x=>x.cur))].join('/')+' rather than the local currency, so '
     +(redir.length>1?'they are':'it is')+' listed below the ranking and excluded from “cheapest”. '
     +'That usually means the store served a fallback (often US) price rather than a genuine local one.</div>';
