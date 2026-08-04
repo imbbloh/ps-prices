@@ -4,7 +4,7 @@
 
 const http = require('http');
 
-const BASE = 'https://store.playstation.com';
+const BASE = process.env.PS_BASE || 'https://store.playstation.com';   // overridable for tests
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 // region code -> store locale
@@ -185,24 +185,27 @@ async function priceAt(path, lang) {
 async function region(pid, cid, loc, title) {
   const lang = acceptLang(loc);
   if (cid) {
-    const r = await priceAt('/' + loc + '/concept/' + cid, lang);
-    if (r) return { ...r, via: 'concept', productId: null };
+    const p = '/' + loc + '/concept/' + cid;
+    const r = await priceAt(p, lang);
+    if (r) return { ...r, via: 'concept', productId: null, url: BASE + p };
   }
   if (pid) {
-    const r = await priceAt('/' + loc + '/product/' + pid, lang);
-    if (r) return { ...r, via: 'product', productId: pid };
+    const p = '/' + loc + '/product/' + pid;
+    const r = await priceAt(p, lang);
+    if (r) return { ...r, via: 'product', productId: pid, url: BASE + p };
   }
   if (title) {
     const h = await getText(BASE + '/' + loc + '/search/' + encodeURIComponent(title), 2, lang);
     if (h) {
       for (const lid of productIds(h).slice(0, 3)) {
         if (lid === pid) continue;                      // already tried in tier 2
-        const r = await priceAt('/' + loc + '/product/' + lid, lang);
-        if (r) return { ...r, via: 'search', productId: lid };
+        const p = '/' + loc + '/product/' + lid;
+        const r = await priceAt(p, lang);
+        if (r) return { ...r, via: 'search', productId: lid, url: BASE + p };
       }
     }
   }
-  return { price: null, cur: null, name: null, via: null, productId: null };
+  return { price: null, cur: null, name: null, via: null, productId: null, url: null };
 }
 
 async function lookup(query) {
@@ -254,7 +257,8 @@ async function lookup(query) {
       redirected: r.cur != null && !isAccepted(rk, r.cur),   // excluded from ranking
       foreign: isForeign(rk, r.cur),                         // ranked, but not the local currency
       via: r.via,                    // 'concept' | 'product' | 'search' | null
-      productId: r.productId
+      productId: r.productId,
+      url: r.url || null             // the exact store page this price came from
     };
   });
 

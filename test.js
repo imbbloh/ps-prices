@@ -1,7 +1,14 @@
 // Offline unit tests for the price parser + resolver helpers (no network needed).
 // Run: node test.js
+//
+// A fake store on localhost stands in for store.playstation.com, so the 3-tier
+// resolver is exercised for real without touching the network.
+const PORT = 39217;
+process.env.PS_BASE = 'http://localhost:' + PORT;
+
 const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
-        isAccepted, isForeign } = require('./server.js');
+        isAccepted, isForeign, region } = require('./server.js');
+const http = require('http');
 
 let fails = 0;
 function check(ok, label, detail) {
@@ -123,6 +130,51 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(JSON.stringify(out) === JSON.stringify(items.map(x => x * 2)), 'pool() preserves order', '-> ' + JSON.stringify(out));
   check(peak <= 3, 'pool() respects concurrency cap', '-> peak ' + peak);
   check(JSON.stringify(await pool([], 3, async x => x)) === '[]', 'pool() empty input -> []');
+
+  // --- 3-tier resolver against a fake store -------------------------------
+  // Each locale below is wired to fall through to a different tier, so the
+  // chosen tier and the reported URL are both checked end to end.
+  const CID = '10014719', PID = 'UB1599-PPSA29343_00-BEAST', LOCAL = 'UB1599-PPSA29344_00-BEAST';
+  const page = (price, cur) => '<html><script type="application/ld+json">' +
+    JSON.stringify({ '@type':'Product', name:'Beast of Reincarnation', offers:{ price, priceCurrency:cur } }) +
+    '</script></html>';
+
+  const routes = {
+    // SG resolves on tier 1
+    ['/en-sg/concept/' + CID]: page('S$70.00', 'SGD'),
+    // IN has no concept page, so it must fall through to tier 2
+    ['/en-in/product/' + PID]: page('Rs 4,578', 'INR'),
+    // JP has neither, and must find its own SKU via tier 3
+    ['/ja-jp/search/Beast%20of%20Reincarnation']: '<a href="/ja-jp/product/' + LOCAL + '">x</a>',
+    ['/ja-jp/product/' + LOCAL]: page('¥7,982', 'JPY')
+    // DE is absent entirely -> no price
+  };
+
+  const srv = http.createServer((rq, rs) => {
+    const body = routes[rq.url];
+    if (body == null) { rs.statusCode = 404; return rs.end('nope'); }
+    rs.end(body);
+  });
+  await new Promise(r => srv.listen(PORT, r));
+
+  const base = 'http://localhost:' + PORT;
+  const sg = await region(PID, CID, 'en-sg', 'Beast of Reincarnation');
+  check(sg.via === 'concept' && sg.price === 70 && sg.cur === 'SGD' && sg.url === base + '/en-sg/concept/' + CID,
+    'resolver: concept tier wins when available', '-> ' + sg.via + ' ' + sg.url);
+
+  const inr = await region(PID, CID, 'en-in', 'Beast of Reincarnation');
+  check(inr.via === 'product' && inr.price === 4578 && inr.url === base + '/en-in/product/' + PID,
+    'resolver: falls back to product', '-> ' + inr.via + ' ' + inr.url);
+
+  const jp = await region(PID, CID, 'ja-jp', 'Beast of Reincarnation');
+  check(jp.via === 'search' && jp.price === 7982 && jp.url === base + '/ja-jp/product/' + LOCAL,
+    'resolver: finds the local SKU via region search', '-> ' + jp.via + ' ' + jp.url);
+
+  const de = await region(PID, CID, 'de-de', 'Beast of Reincarnation');
+  check(de.via === null && de.price === null && de.url === null,
+    'resolver: unavailable region yields no price or url', '-> ' + JSON.stringify(de));
+
+  srv.close();
 
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);

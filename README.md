@@ -32,7 +32,7 @@ Endpoints:
 
 | Path | Purpose |
 | --- | --- |
-| `/prices?title=...` | All-region prices as JSON |
+| `/prices?title=...` | All-region prices as JSON. Each result carries a `url` pointing at the exact store page its price came from |
 | `/health` | Cheap liveness ping — the frontend calls this on page load to start waking the free-tier host early |
 
 > Render's free tier sleeps after inactivity, so the **first** request after idle can take

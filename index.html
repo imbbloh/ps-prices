@@ -48,6 +48,8 @@
   .badge.best{background:var(--good);color:#04220f}
   .badge.warn{background:var(--warn);color:#3a2600}
   .badge.info{background:var(--panel2);color:var(--dim);border:1px solid var(--line)}
+  a.store{color:inherit;text-decoration:none;border-bottom:1px dotted var(--dim)}
+  a.store:hover,a.store:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
   .rank{color:var(--dim);width:1.5em;display:inline-block}
   .conv{font-weight:700}
   .foot{font-size:.72rem;color:var(--dim);margin-top:16px;line-height:1.6}
@@ -143,6 +145,14 @@ $('cur').addEventListener('change',()=>store.set('ps_cur',$('cur').value));
 const backendUrl=()=>($('backend').value||store.get('ps_backend')||DEFAULT_BACKEND).trim().replace(/\/$/,'');
 
 const label=r=>(FLAG[r]?FLAG[r]+' ':'')+r;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Link a price to the store page it came from. Only http(s) URLs from the
+// backend are linked, so a bad value degrades to plain text rather than markup.
+function priceCell(x){
+  if(!x.url||!/^https:\/\/store\.playstation\.com\//.test(x.url)) return x.local;
+  return '<a class="store" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" title="Open the '+esc(x.r)+' store page">'+x.local+'</a>';
+}
 function fmt(cur,val){ try{return new Intl.NumberFormat(undefined,{style:'currency',currency:cur,maximumFractionDigits:2}).format(val);}catch(e){return val.toLocaleString()+' '+cur;} }
 
 // --- status helpers -------------------------------------------------------
@@ -209,8 +219,8 @@ async function run(){
     const toTarget=(price,cur)=> (rate(cur)&&rate(target)) ? (price/rate(cur))*rate(target) : null;
 
     const rows=pr.results.map(x=>{
-      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false, foreign:false};
-      return {r:x.region, cur:x.currency, price:x.price, local:fmt(x.currency,x.price), conv:toTarget(x.price,x.currency), red:x.redirected, foreign:x.foreign};
+      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false, foreign:false, url:null};
+      return {r:x.region, cur:x.currency, price:x.price, local:fmt(x.currency,x.price), conv:toTarget(x.price,x.currency), red:x.redirected, foreign:x.foreign, url:x.url};
     });
     render(rows, pr.title, target);
 
@@ -251,9 +261,9 @@ function render(rows, gameName, target){
       (home?'<div class="tile"><div class="k">'+home.r+'</div><div class="v">'+fmt(target,home.conv)+'</div></div>':'');
   }
   let h='';
-  good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+(i===0?'<span class="badge best">CHEAPEST</span>':'')+(x.foreign?'<span class="badge info">'+x.cur+'</span>':'')+'</td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
-  redir.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'<span class="badge warn">'+x.cur+'</span></td><td class="num">'+x.local+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
-  noconv.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num">'+x.local+'</td><td class="num" style="color:var(--dim)">no rate</td></tr>'; });
+  good.forEach((x,i)=>{ h+='<tr class="'+(i===0?'best':'')+'"><td><span class="rank">'+(i+1)+'</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+(i===0?'<span class="badge best">CHEAPEST</span>':'')+(x.foreign?'<span class="badge info">'+x.cur+'</span>':'')+'</td><td class="num">'+priceCell(x)+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
+  redir.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'<span class="badge warn">'+x.cur+'</span></td><td class="num">'+priceCell(x)+'</td><td class="num conv">'+fmt(target,x.conv)+'</td></tr>'; });
+  noconv.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num">'+priceCell(x)+'</td><td class="num" style="color:var(--dim)">no rate</td></tr>'; });
   bad.forEach(x=>{ h+='<tr><td><span class="rank">–</span></td><td><span class="flag">'+FLAG[x.r]+'</span>'+x.r+'</td><td class="num" colspan="2" style="color:var(--warn)">not available</td></tr>'; });
   $('rows').innerHTML=h;
 
