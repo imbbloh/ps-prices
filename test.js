@@ -7,7 +7,7 @@ const PORT = 39217;
 process.env.PS_BASE = 'http://localhost:' + PORT;
 
 const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
-        isAccepted, isForeign, region, languages } = require('./server.js');
+        isAccepted, isForeign, region, languages, keyName, loadCatalog } = require('./server.js');
 const http = require('http');
 
 let fails = 0;
@@ -233,6 +233,29 @@ check(languages('<dl><dt>Géneros:</dt><dd>Acción, Aventura</dd></dl>').english
 // The guard must not suppress a genuine "no English" answer.
 const reallyNoEn = '<dl><dt>Voz:</dt><dd>Japonés</dd><dt>Idiomas de pantalla:</dt><dd>Japonés, Coreano</dd></dl>';
 check(languages(reallyNoEn).english === false, 'languages(): genuine no-English still reports false');
+
+// keyName(): the loose key used to match a typed title against the catalogue.
+check(keyName("Marvel's Spider-Man 2") === 'marvels spider man 2', 'keyName strips punctuation', '-> ' + keyName("Marvel's Spider-Man 2"));
+check(keyName('  GHOST of Yōtei ') === 'ghost of yotei', 'keyName lowercases and drops accents', '-> ' + keyName('  GHOST of Yōtei '));
+check(keyName('Gran Turismo 7') === keyName('gran  turismo   7'), 'keyName collapses whitespace');
+check(keyName('NieR:Automata') === 'nier automata', 'keyName handles a colon without spaces');
+
+// loadCatalog(): missing file must yield null, not throw — the backend then
+// falls back to live store search.
+check(loadCatalog('/nonexistent/catalog.json') === null, 'loadCatalog missing file -> null');
+{
+  const f = require('os').tmpdir() + '/cat-test-' + process.pid + '.json';
+  require('fs').writeFileSync(f, JSON.stringify([
+    { conceptId: '10014719', name: 'Ghost of Yōtei', releaseDate: '2026-08-04' },
+    { conceptId: '228748', name: 'Fortnite', releaseDate: '2017-07-25' },
+    { conceptId: '999', name: null }                       // malformed row is skipped
+  ]));
+  const m = loadCatalog(f);
+  check(m && m.size === 2, 'loadCatalog skips rows without a name', '-> ' + (m && m.size));
+  check(m.get(keyName('ghost of yotei')) === '10014719', 'loadCatalog matches accent-free', '-> ' + m.get(keyName('ghost of yotei')));
+  check(m.get('fortnite') === '228748', 'loadCatalog exact name');
+  require('fs').unlinkSync(f);
+}
 
 // productIds(): document order, deduped, region-specific SKUs kept distinct
 const searchHtml = [

@@ -53,6 +53,14 @@
   a.store{color:inherit;text-decoration:none;border-bottom:1px dotted var(--dim)}
   a.store:hover,a.store:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
   .was{display:block;color:var(--dim);font-size:.78em;text-decoration:line-through;margin-top:1px}
+  .sugwrap{position:relative;flex:1 1 200px;min-width:0;display:flex}
+  .sug{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;background:var(--panel2);
+       border:1px solid var(--line);border-radius:12px;overflow:hidden;display:none;
+       box-shadow:0 12px 28px rgba(0,0,0,.45);max-height:300px;overflow-y:auto}
+  .sug.on{display:block}
+  .sug div{padding:10px 12px;cursor:pointer;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sug div:hover,.sug div.sel{background:rgba(91,140,255,.18)}
+  .sug .yr{color:var(--dim);font-size:.78em;margin-left:6px}
   .rank{color:var(--dim);width:1.5em;display:inline-block}
   .conv{font-weight:700}
   .foot{font-size:.72rem;color:var(--dim);margin-top:16px;line-height:1.6}
@@ -68,7 +76,10 @@
   <div class="card">
     <label for="game">Game title or store URL</label>
     <div class="row">
-      <input id="game" type="text" placeholder="e.g. 007 First Light — or paste a store URL" autocomplete="off">
+      <span class="sugwrap">
+        <input id="game" type="text" placeholder="e.g. 007 First Light — or paste a store URL" autocomplete="off">
+        <div class="sug" id="sug"></div>
+      </span>
       <select id="cur" title="Display currency">
         <option value="SGD" selected>SGD</option>
         <option value="USD">USD</option>
@@ -158,6 +169,75 @@ function busy(on){ $('bar').classList.toggle('on',on); $('go').disabled=on; }
   fetch(b+'/health',{cache:'no-store'}).catch(()=>{});
 })();
 
+// ---- game catalogue -------------------------------------------------------
+// catalog.json sits next to this page (GitHub Pages serves the repo root), so
+// suggestions are local and instant — no backend call, no cold start. Absent
+// file just means no suggestions; typing a title still works as before.
+let CAT=null, CATKEY=null;
+// Must match keyName() in server.js exactly, or a suggestion the user picks
+// would not resolve the same way server-side. Apostrophes are dropped so
+// "Marvels Spider-Man" matches "Marvel's Spider-Man".
+const keyName=s=>String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+  .replace(/['\u2019`]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+
+async function loadCatalog(){
+  if(CAT) return CAT;
+  try{
+    const c=JSON.parse(store.get('ps_cat')||'null');
+    if(c&&c.rows&&Date.now()-c.ts<24*60*60*1000){ CAT=c.rows; }
+  }catch(e){}
+  if(!CAT){
+    try{
+      const r=await fetch('catalog.json',{cache:'no-cache'});
+      if(!r.ok) throw new Error('no catalogue');
+      CAT=await r.json();
+      try{ store.set('ps_cat',JSON.stringify({ts:Date.now(),rows:CAT})); }catch(e){}
+    }catch(e){ CAT=[]; }
+  }
+  CATKEY=CAT.map(r=>({k:keyName(r.name),n:r.name,id:r.conceptId,y:(r.releaseDate||'').slice(0,4)}));
+  return CAT;
+}
+
+// Prefix matches rank above substring matches, then shorter names first so
+// "Gran Turismo 7" beats "Gran Turismo 7 Deluxe Edition Bundle".
+function suggest(q,limit=8){
+  if(!CATKEY||!q) return [];
+  const k=keyName(q); if(k.length<2) return [];
+  const pre=[],sub=[];
+  for(const r of CATKEY){
+    if(r.k.startsWith(k)) pre.push(r);
+    else if(r.k.includes(k)) sub.push(r);
+    if(pre.length>=limit*3) break;
+  }
+  const by=(a,b)=>a.n.length-b.n.length;
+  return [...pre.sort(by),...sub.sort(by)].slice(0,limit);
+}
+
+let sugItems=[],sugIdx=-1;
+function showSug(items){
+  sugItems=items; sugIdx=-1;
+  if(!items.length) return $('sug').classList.remove('on');
+  $('sug').innerHTML=items.map((r,i)=>'<div data-i="'+i+'">'+esc(r.n)+(r.y?'<span class="yr">'+esc(r.y)+'</span>':'')+'</div>').join('');
+  $('sug').classList.add('on');
+}
+function hideSug(){ $('sug').classList.remove('on'); sugItems=[]; sugIdx=-1; }
+function pick(i){
+  const r=sugItems[i]; if(!r) return;
+  $('game').value=r.n;
+  $('game').dataset.conceptId=r.id;   // exact id: the backend skips searching
+  hideSug(); run();
+}
+
+$('game').addEventListener('input',async()=>{
+  delete $('game').dataset.conceptId;   // typing invalidates a previous pick
+  await loadCatalog();
+  showSug(suggest($('game').value));
+});
+$('game').addEventListener('blur',()=>setTimeout(hideSug,150));
+$('sug').addEventListener('mousedown',e=>{
+  const d=e.target.closest('div[data-i]'); if(d){ e.preventDefault(); pick(+d.dataset.i); }
+});
+
 // FX with a localStorage cache, so a flaky rates API can't break the page.
 async function getFx(){
   let cached=null;
@@ -175,12 +255,14 @@ async function getFx(){
 }
 
 async function run(){
-  const title=$('game').value.trim();
+  hideSug();
+  const picked=$('game').dataset.conceptId;
+  const title=picked||$('game').value.trim();   // an exact id beats a title guess
   const target=$('cur').value;
   const backend=backendUrl();
   if(!title){ setStatus('Type a game title.',false); return; }
   if(!backend){ $('status').innerHTML='Set your <b>Backend URL</b> under “Backend settings” first (see README).'; $('setBox').classList.add('open'); return; }
-  store.set('ps_title',title);
+  store.set('ps_title',$('game').value.trim());
 
   busy(true); $('resultCard').style.display='none'; $('rows').innerHTML=''; $('summary').innerHTML='';
 
@@ -276,7 +358,17 @@ function render(rows, gameName, target){
 }
 
 $('go').addEventListener('click',run);
-$('game').addEventListener('keydown',e=>{ if(e.key==='Enter') run(); });
+$('game').addEventListener('keydown',e=>{
+  if(sugItems.length&&(e.key==='ArrowDown'||e.key==='ArrowUp')){
+    e.preventDefault();
+    sugIdx=(sugIdx+(e.key==='ArrowDown'?1:-1)+sugItems.length)%sugItems.length;
+    [...$('sug').children].forEach((c,i)=>c.classList.toggle('sel',i===sugIdx));
+    return;
+  }
+  if(e.key==='Escape') return hideSug();
+  if(e.key==='Enter'){ if(sugIdx>=0) return pick(sugIdx); hideSug(); run(); }
+});
+loadCatalog();   // warm the index while the user is still reading the page
 </script>
 </body>
 </html>

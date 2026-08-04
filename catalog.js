@@ -23,9 +23,17 @@
 //      re-capture it: browse page, F12 -> Network, filter "categoryGridRetrieve",
 //      copy sha256Hash from the request URL, pass it with --hash.
 //
-// Saved per game: conceptId, name, releaseDate. Prices are deliberately NOT
-// saved -- they change constantly and would rewrite every row daily, burying the
-// one useful signal in the diff, which is which games were added.
+// Saved per game: conceptId, name (and releaseDate if the API ever returns one).
+//
+// Release dates are NOT available from this call: the persisted query's product
+// selection does not include them, and a persisted query's fields cannot be
+// changed by the caller. New games are therefore found by diffing against the
+// previous file, not by date. The category is ordered by popularity rather than
+// recency, so --update (which stops after a few known pages) can miss a new
+// release that is not popular; --all is the reliable mode.
+//
+// Prices are deliberately not saved -- they change constantly and would rewrite
+// every row daily, burying the one useful signal in the diff.
 
 const fs = require('fs');
 
@@ -100,12 +108,17 @@ function load(file) {
   } catch (e) { return new Map(); }
 }
 
+// One game per line, so a diff line is exactly one game and the daily commit
+// reads as a list of what appeared.
 function save(file, known) {
   const rows = [...known.values()]
     .sort((a, b) => (a.name || '').localeCompare(b.name || '') || a.conceptId.localeCompare(b.conceptId));
-  const dated = rows.filter(r => r.releaseDate).length;
-  if (rows.length && !dated) console.log('NOTE: no release dates found — pass --sort once the sort enum is known.');
-  fs.writeFileSync(file, JSON.stringify(rows, null, 1) + '\n');
+  const body = rows.map(r => {
+    const o = { conceptId: r.conceptId, name: r.name };
+    if (r.releaseDate) o.releaseDate = r.releaseDate;   // omit when the API did not give one
+    return '  ' + JSON.stringify(o);
+  }).join(',\n');
+  fs.writeFileSync(file, '[\n' + body + '\n]\n');
   return rows.length;
 }
 
@@ -151,18 +164,24 @@ async function walk(known, stopAfter) {
     return;
   }
 
-  const known = has('--all') ? new Map() : load(OUT);
-  const before = known.size;
-  const incremental = has('--update') && before > 0;
-  console.log('mode     : ' + (incremental ? 'incremental (' + before + ' known)' : 'full rebuild'));
+  const previous = load(OUT);                       // for reporting what is genuinely new
+  const known = has('--all') ? new Map() : new Map(previous);
+  const incremental = has('--update') && previous.size > 0;
+  console.log('mode     : ' + (incremental
+    ? 'incremental (' + previous.size + ' known)'
+    : 'full walk' + (previous.size ? ' (' + previous.size + ' known, comparing)' : '')));
 
-  const { added, pages } = await walk(known, incremental ? STOP_AFTER : Infinity);
+  const { pages } = await walk(known, incremental ? STOP_AFTER : Infinity);
+
+  // "New" means absent from the previous file, not merely seen during this run.
+  const added = [...known.values()].filter(r => !previous.has(r.conceptId));
+  const gone = [...previous.values()].filter(r => !known.has(r.conceptId));
 
   console.log('\npages fetched: ' + pages);
   console.log('new games    : ' + added.length);
-  added.sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''));
-  added.slice(0, 25).forEach(a => console.log('  + ' + (a.releaseDate || '????-??-??') + '  ' + a.name));
+  added.slice(0, 25).forEach(a => console.log('  + ' + a.name));
   if (added.length > 25) console.log('  … and ' + (added.length - 25) + ' more');
+  if (gone.length) console.log('dropped      : ' + gone.length + ' (delisted, or pushed past the ' + HARD_CAP + ' cap)');
 
   const total = save(OUT, known);
   console.log('catalogue    : ' + total + ' games -> ' + OUT);

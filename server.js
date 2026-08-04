@@ -3,6 +3,8 @@
 // returns clean JSON. Zero dependencies (uses built-in http + global fetch).
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 const BASE = process.env.PS_BASE || 'https://store.playstation.com';   // overridable for tests
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
@@ -35,6 +37,23 @@ function isAccepted(rk, cur) {
 // Worth labelling in the UI, so a USD row is not mistaken for a peso one.
 function isForeign(rk, cur) {
   return cur != null && cur !== EXPECT[rk];
+}
+
+// catalog.json (if present) maps game names to concept IDs, so a title can be
+// resolved exactly instead of by scraping the store's search results and hoping
+// the first hit is the right one. Absent file = fall back to live search.
+let CATALOG = null;
+function loadCatalog(file) {
+  try {
+    const rows = JSON.parse(fs.readFileSync(file || path.join(__dirname, 'catalog.json'), 'utf8'));
+    const m = new Map();
+    for (const r of rows) {
+      if (!r || !r.name || !r.conceptId) continue;
+      const k = keyName(r.name);
+      if (!m.has(k)) m.set(k, String(r.conceptId));   // first wins: rows are name-sorted
+    }
+    return m.size ? m : null;
+  } catch (e) { return null; }
 }
 
 const cache = new Map();               // title(lower) -> { ts, data }
@@ -184,6 +203,12 @@ const LETTERS = { 'ł':'l', 'ø':'o', 'đ':'d', 'ð':'d', 'þ':'th', 'ß':'ss', 
 const norm = s => ('' + s).normalize('NFD').replace(/[̀-ͯ]/g, '')
                           .normalize('NFC').toLowerCase()
                           .replace(/[łøđðþßæœı]/g, c => LETTERS[c]).trim();
+
+// Loose key for matching a typed title against a catalogue name: accent-free,
+// punctuation-free, single-spaced. "Marvel's Spider-Man 2" -> "marvels spider man 2".
+// Apostrophes are removed rather than turned into spaces, so a typed
+// "Marvels Spider-Man" matches the catalogue's "Marvel's Spider-Man".
+const keyName = s => norm(s).replace(/['’`]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
 // "English" as each storefront writes it. `angl` covers anglais/angielski/
 // anglictina, `англ` covers Англійська/Английский.
@@ -407,7 +432,16 @@ async function lookup(query) {
   const q = parseQuery(query);
   let pid = q.productId, cid = q.conceptId, title = q.title;
 
+  let resolvedBy = q.conceptId ? 'conceptId' : (q.productId ? 'productId' : null);
+
+  // Exact catalogue hit: no search request at all.
+  if (!pid && !cid && title && CATALOG) {
+    const hit = CATALOG.get(keyName(title));
+    if (hit) { cid = hit; resolvedBy = 'catalog'; }
+  }
+
   if (!pid && !cid) {
+    resolvedBy = 'search';
     // title -> conceptId / productId via the global store search
     const html = await getText(BASE + '/en-us/search/' + encodeURIComponent(title), 3);
     const candidates = html ? productIds(html) : [];
@@ -465,6 +499,7 @@ async function lookup(query) {
     title: gameName || title || query,
     productId: pid,
     conceptId: cid || null,
+    resolvedBy,                    // 'catalog' | 'search' | 'conceptId' | 'productId'
     priced: results.filter(r => r.price != null).length,
     total: results.length,
     elapsedMs: Date.now() - started,
@@ -508,7 +543,10 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
   // Cheap endpoint the frontend pings on page load to wake the free-tier dyno.
-  if (url.pathname === '/health') return json(res, 200, { ok: true, uptime: Math.round(process.uptime()) });
+  if (url.pathname === '/health') return json(res, 200, {
+    ok: true, uptime: Math.round(process.uptime()),
+    catalog: CATALOG ? CATALOG.size : 0
+  });
 
   if (url.pathname === '/prices') {
     const title = (url.searchParams.get('title') || '').trim();
@@ -527,6 +565,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
+  CATALOG = loadCatalog();
+  console.log(CATALOG ? 'catalogue: ' + CATALOG.size + ' games' : 'catalogue: none (falling back to store search)');
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, () => console.log('PS-SGD backend on :' + PORT));
 }
@@ -534,5 +574,6 @@ if (require.main === module) {
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
+  keyName, loadCatalog, setCatalog: m => { CATALOG = m; },
   LOCALES, EXPECT, ALSO_OK, BASE
 };
