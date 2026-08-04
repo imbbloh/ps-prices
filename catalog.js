@@ -158,7 +158,9 @@ async function collect(known, added, filterBy, label) {
   console.log('category  : ' + probe.localizedName + '  (' + probe.reportingName + ')');
   console.log('locale    : ' + LOCALE + (symbol ? '   storefront prices in "' + symbol + '"' : ''));
   console.log('reported  : ' + (probe.pageInfo || {}).totalCount + '   <-- capped at ' + HARD_CAP);
-  console.log('actual    : ' + realTotal + '   (summed across ' + price.length + ' price bands)');
+  // Bands can nest -- "Free" (0-0) sits inside "Under $1.99" (0-199) -- so the
+  // sum over-counts. It is an upper bound; the deduplicated walk is the truth.
+  console.log('facet sum : ' + realTotal + '   (upper bound over ' + price.length + ' bands; they can overlap)');
   release.forEach(v => console.log('  ' + v.key.padEnd(18) + String(v.count).padStart(5) + '  ' + v.displayName));
 
   if (!has('--all') && !has('--new')) {
@@ -214,6 +216,9 @@ async function collect(known, added, filterBy, label) {
 
   const total = save(OUT, known);
   console.log('catalogue    : ' + total + ' games -> ' + OUT);
+  if (has('--all') && realTotal > seen.size) {
+    console.log('             (' + (realTotal - seen.size) + ' fewer than the facet sum, which double-counts nested bands)');
+  }
   if (has('--all') && realTotal && seen.size < realTotal * 0.9) {
     console.log('NOTE: this run saw ' + seen.size + ' but the facets claim ' + realTotal + ' — a slice may have failed.');
   }
