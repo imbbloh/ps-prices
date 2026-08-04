@@ -180,7 +180,10 @@ function priceBlocks(h) {
 // Entries the store classifies as something other than a playable game --
 // add-ons, currency packs, season passes. Anything not on this list is treated
 // as a game, so an unfamiliar classification is included rather than dropped.
-const NOT_A_GAME = /^(GAME_RELATED|ADD_ON|ADDON|VIRTUAL_CURRENCY|SUBSCRIPTION|SEASON_PASS)$/;
+// Seen on a real page: VIRTUAL_CURRENCY and ITEM both label Stubs packs and
+// add-ons. The game's own entries carry no classification at all, so a game
+// cannot be recognised positively -- only the non-games can be excluded.
+const NOT_A_GAME = /^(GAME_RELATED|ADD_ON|ADDON|ITEM|VIRTUAL_CURRENCY|CURRENCY|SUBSCRIPTION|SEASON_PASS|PACK)$/;
 const isGame = b => !b.cls || !NOT_A_GAME.test(b.cls);
 
 // Of several editions, the cheapest to actually pay is the one worth showing --
@@ -216,10 +219,18 @@ function grab(h) {
 
   const raw = priceBlocks(h);
   const classified = raw.some(b => b.cls);
-  // With classifications available, keep only the game entries. Without them we
-  // cannot tell an add-on from an edition, so fall back to the first block --
-  // the page's own primary entry -- rather than letting a cheap add-on win.
-  const usable = classified ? raw.filter(isGame) : raw.slice(0, 1);
+
+  // The page lists the game and its editions first, then an add-on carousel.
+  // Cutting at the first entry the store labels as a non-game drops the whole
+  // carousel, including any add-on classification not yet in NOT_A_GAME --
+  // which matters, because the exclusion list only grows by being surprised.
+  const carousel = raw.findIndex(b => b.cls && NOT_A_GAME.test(b.cls));
+  const upTo = carousel > 0 ? raw.slice(0, carousel) : raw;
+
+  // Without classifications an add-on cannot be told from an edition, so fall
+  // back to the page's own primary entry rather than letting a cheap add-on win.
+  let usable = classified ? upTo.filter(isGame) : raw.slice(0, 1);
+  if (!usable.length) usable = raw.filter(isGame);
 
   const blocks = usable.map(b => {
     const base = parseNum(b.base), disc = parseNum(b.disc);

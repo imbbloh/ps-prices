@@ -145,11 +145,13 @@ check(grab(shallow).price === 69.99, 'grab() base edition wins when the Deluxe d
 
 // Add-ons sit on the same concept page and are always cheaper than the game,
 // so picking the cheapest entry outright returned a piece of DLC.
+// Ordering matches the real page: the game and its editions first, then the
+// add-on carousel. Nothing playable is listed after the carousel begins.
 const withAddons = '<html>' +
-  ed('$69.99', '$69.99', 'FULL_GAME') +
+  ed('$69.99', '$69.99', 'FULL_GAME') +         // Standard
+  ed('$99.99', '$59.99', 'FULL_GAME') +         // Deluxe, on sale
   ed('$9.99',  '$9.99',  'GAME_RELATED') +      // character pack
   ed('$4.99',  '$4.99',  'ADD_ON') +            // skin
-  ed('$99.99', '$59.99', 'FULL_GAME') +         // Deluxe, on sale but still dearer
   '</html>';
 const WA = grab(withAddons);
 check(WA.price === 59.99, 'grab() ignores add-ons and takes the cheapest game', '-> ' + WA.price);
@@ -167,6 +169,40 @@ const noCls = '<html>' +
   '{"price":{"basePrice":"$4.99","currencyCode":"USD","discountedPrice":"$4.99"}}' +
   '</html>';
 check(grab(noCls).price === 69.99, 'grab() unclassified page falls back to the first entry', '-> ' + grab(noCls).price);
+
+// The real MLB The Show 26 page, transcribed from its markup: the game and its
+// editions first (carrying no classification), then an add-on carousel of Stubs
+// packs. "ITEM" labels add-ons just as "VIRTUAL_CURRENCY" does, and a $19.99
+// pack was winning over the game.
+const blk = (base, disc, cls) => (cls ? '{"storeDisplayClassification":"' + cls + '",' : '{') +
+  '"price":{"basePrice":"' + base + '","currencyCode":"USD","discountedPrice":"' + disc + '"}}';
+const mlb = '<html>' +
+  blk('Game Trial', 'Game Trial', null) +
+  blk('$69.99', '$69.99', null) +            // Standard
+  blk('$79.99', '$49.59', null) +            // Deluxe, on sale
+  blk('Game Trial', 'Game Trial', 'PREMIUM_EDITION') +
+  blk('$69.99', '$69.99', null) +
+  blk('$99.99', '$99.99', 'VIRTUAL_CURRENCY') +   // Stubs, carousel starts here
+  blk('$49.99', '$49.99', 'VIRTUAL_CURRENCY') +
+  blk('$30.00', '$30.00', 'ITEM') +
+  blk('$19.99', '$19.99', 'ITEM') +
+  blk('$0.99',  '$0.99',  'VIRTUAL_CURRENCY') +
+  '</html>';
+const ML = grab(mlb);
+check(ML.price === 49.59, 'grab() MLB page: the discounted edition, not a Stubs pack', '-> ' + ML.price);
+check(ML.original === 79.99, 'grab() MLB page: strikethrough is that edition\'s own price', '-> ' + ML.original);
+check(ML.onPage === 10, 'grab() MLB page: counts every priced entry', '-> ' + ML.onPage);
+
+// "ITEM" alone must not be mistaken for a game.
+const itemOnly = '<html>' + blk('$69.99', '$69.99', null) + blk('$19.99', '$19.99', 'ITEM') + '</html>';
+check(grab(itemOnly).price === 69.99, 'grab() ITEM is an add-on, not a game', '-> ' + grab(itemOnly).price);
+
+// An add-on class we have never seen still gets dropped, because everything
+// after the carousel begins is discarded.
+const unknownAddon = '<html>' + blk('$69.99', '$69.99', null) +
+  blk('$9.99', '$9.99', 'VIRTUAL_CURRENCY') + blk('$1.99', '$1.99', 'SOMETHING_ELSE') + '</html>';
+check(grab(unknownAddon).price === 69.99, 'grab() drops everything after the add-on carousel starts',
+  '-> ' + grab(unknownAddon).price);
 
 // Language support. Screen languages (subtitles/UI) decide whether a
 // foreign-region copy is playable; "unknown" must stay distinct from "no".
