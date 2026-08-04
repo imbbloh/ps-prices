@@ -111,6 +111,12 @@ all it still shows every store's local price rather than an empty table.
   pays today; the pre-discount figure comes back as `original` with a `discount` label and is
   struck through in the table. The store's `discountedPrice` is preferred over `basePrice`,
   which is the pre-discount value by definition.
+- **English support.** Each result reports `english` (`true` / `false` / `null` = the page said
+  nothing) plus the `screenLanguages` and `voiceLanguages` lists. Screen languages decide it —
+  Japanese voice with English subtitles is playable — falling back to voice only when no screen
+  list is published. The table shows a green **EN** or an amber **NO EN** badge, and nothing at
+  all when unknown, so a parse failure never reads as "no English". Concept pages often omit the
+  language spec, so a concept-tier win makes one extra product-page read to fill it in.
 - **Currencies that aren't the region's own.** The PS Store Mexico prices many titles in USD.
   That is a real price a Mexican account pays, so those rows are **ranked normally** and carry a
   grey currency badge. Add more exceptions in `ALSO_OK` in `server.js`:

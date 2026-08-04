@@ -160,6 +160,50 @@ function grab(h) {
   return { price, cur, name, original, discount };
 }
 
+// Page text, one line per element boundary. The store renders the language
+// spec as a label element followed by a value element, so flattening to lines
+// lets the same reader handle "Voice: a, b" and "<dt>Voice</dt><dd>a, b</dd>".
+function textLines(h) {
+  return h.replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+          .replace(/<[^>]+>/g, '\n')
+          .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
+          .split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+// The label is matched either alone on its line or with its value after a
+// colon — never as a prefix, so "Voice Chat Supported" cannot be mistaken for
+// the "Voice" language list.
+function langList(lines, label) {
+  const alone = new RegExp('^' + label + '\\s*:?$', 'i');
+  const inline = new RegExp('^' + label + '\\s*:\\s*(.+)$', 'i');
+  for (let i = 0; i < lines.length; i++) {
+    let v = null;
+    const m = lines[i].match(inline);
+    if (m) v = m[1];
+    else if (alone.test(lines[i])) {
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        if (!/:$/.test(lines[j])) { v = lines[j]; break; }   // skip a following label
+      }
+    }
+    if (!v) continue;
+    const parts = v.split(/,\s*/).map(s => s.trim()).filter(Boolean);
+    if (parts.length) return parts;
+  }
+  return null;
+}
+
+// Screen languages cover subtitles and UI, which is what makes a foreign-region
+// copy playable; voice is a bonus. `english` is null when the page says nothing
+// — that is "unknown", and must not be shown as "no English".
+function languages(h) {
+  const lines = textLines(h);
+  const screen = langList(lines, 'Screen Languages?');
+  const voice = langList(lines, 'Voice');
+  const has = a => a ? a.some(s => /^english\b/i.test(s)) : null;
+  const s = has(screen), v = has(voice);
+  return { screen, voice, english: s != null ? s : v };
+}
+
 // All product IDs on a page, in document order, deduped.
 function productIds(h) {
   const out = [], seen = new Set(), re = /\/product\/([A-Z0-9][\w-]{6,})/gi;
@@ -206,7 +250,21 @@ async function priceAt(path, lang) {
   const h = await getText(BASE + path, 2, lang);
   if (!h) return null;
   const r = grab(h);
-  return r.price != null ? r : null;
+  if (r.price == null) return null;
+  const L = languages(h);
+  return { ...r, english: L.english, screenLanguages: L.screen, voiceLanguages: L.voice };
+}
+
+// Concept pages are the hub for a title and often carry no language spec, so a
+// concept-tier win may know the price but not the languages. One product-page
+// read fills that in; if the shared ID is not sold in this region, we simply
+// leave `english` unknown rather than guessing.
+async function withLangs(r, loc, lang, pid) {
+  if (r.english != null || !pid) return r;
+  const h = await getText(BASE + '/' + loc + '/product/' + pid, 1, lang);
+  if (!h) return r;
+  const L = languages(h);
+  return L.english == null ? r : { ...r, english: L.english, screenLanguages: L.screen, voiceLanguages: L.voice };
 }
 
 // 3-tier resolve for one region, cheapest-and-most-reliable first:
@@ -221,7 +279,7 @@ async function region(pid, cid, loc, title) {
   if (cid) {
     const p = '/' + loc + '/concept/' + cid;
     const r = await priceAt(p, lang);
-    if (r) return { ...r, via: 'concept', productId: null, url: BASE + p };
+    if (r) return { ...(await withLangs(r, loc, lang, pid)), via: 'concept', productId: null, url: BASE + p };
   }
   if (pid) {
     const p = '/' + loc + '/product/' + pid;
@@ -239,7 +297,8 @@ async function region(pid, cid, loc, title) {
       }
     }
   }
-  return { price: null, cur: null, name: null, original: null, discount: null, via: null, productId: null, url: null };
+  return { price: null, cur: null, name: null, original: null, discount: null, english: null,
+           screenLanguages: null, voiceLanguages: null, via: null, productId: null, url: null };
 }
 
 async function lookup(query) {
@@ -290,6 +349,9 @@ async function lookup(query) {
       price: r.price,
       original: r.original || null,   // pre-discount price, when on sale
       discount: r.discount || null,   // e.g. '-50%'
+      english: r.english == null ? null : r.english,   // true / false / null = unknown
+      screenLanguages: r.screenLanguages || null,
+      voiceLanguages: r.voiceLanguages || null,
       redirected: r.cur != null && !isAccepted(rk, r.cur),   // excluded from ranking
       foreign: isForeign(rk, r.cur),                         // ranked, but not the local currency
       via: r.via,                    // 'concept' | 'product' | 'search' | null
@@ -370,5 +432,6 @@ if (require.main === module) {
 
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
-  parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, LOCALES, EXPECT, ALSO_OK, BASE
+  parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
+  LOCALES, EXPECT, ALSO_OK, BASE
 };
