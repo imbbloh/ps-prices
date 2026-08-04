@@ -165,7 +165,9 @@ all it still shows every store's local price rather than an empty table.
 - Buying a cheaper region's price requires a PSN account registered to that region plus that
   region's gift-card credit — card payments are geo-checked.
 - **Editions.** A concept page lists every edition, so the extractor reads them all and takes
-  the **cheapest paid** one: comparing a Deluxe price in one region against a Standard price in
+  the one that is **cheapest to actually pay** — comparing effective prices, not list prices, so
+  a Deluxe edition on deep discount beats a full-price Standard and is the price shown. The
+  strikethrough is always that same edition's own list price. Otherwise: comparing a Deluxe price in one region against a Standard price in
   another is not a comparison. Zero-priced entries are skipped when anything paid exists, so a
   free demo listed beside the game does not win — unless the game really is free. Each result
   reports `editions`, the number of priced entries the page carried. The title comes from

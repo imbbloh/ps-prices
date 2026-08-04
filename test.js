@@ -133,6 +133,25 @@ check(MX2.price === 49.99 && MX2.original === 69.99,
   'grab() pairs the sale price with its own original', '-> ' + MX2.price + ' was ' + MX2.original);
 check(MX2.discount === '-29%', 'grab() derives the discount from the same edition', '-> ' + MX2.discount);
 
+// Cheapest means cheapest to actually pay, not cheapest list price: a Deluxe
+// edition on deep discount can undercut a full-price Standard, and that is the
+// price worth buying.
+const deluxeOnSale = '<html>' +
+  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountText":"-60%","discountedPrice":"$39.99"}}' +
+  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$69.99"}}' +
+  '</html>';
+const DS = grab(deluxeOnSale);
+check(DS.price === 39.99, 'grab() a discounted Deluxe beats a full-price Standard', '-> ' + DS.price);
+check(DS.original === 99.99 && DS.discount === '-60%',
+  'grab() strikes through the chosen edition\'s own list price', '-> was ' + DS.original + ' ' + DS.discount);
+
+// ...and the reverse: no discount deep enough, so the base edition wins.
+const shallow = '<html>' +
+  '{"price":{"basePrice":"$99.99","currencyCode":"USD","discountedPrice":"$89.99"}}' +
+  '{"price":{"basePrice":"$69.99","currencyCode":"USD","discountedPrice":"$69.99"}}' +
+  '</html>';
+check(grab(shallow).price === 69.99, 'grab() base edition wins when the Deluxe discount is shallow', '-> ' + grab(shallow).price);
+
 // Language support. Screen languages (subtitles/UI) decide whether a
 // foreign-region copy is playable; "unknown" must stay distinct from "no".
 const VOICE = 'English, French (France), German, Italian, Japanese, Polish, Portuguese (Brazil), ' +
