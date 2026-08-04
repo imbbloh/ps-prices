@@ -104,7 +104,17 @@ all it still shows every store's local price rather than an empty table.
 
 - Buying a cheaper region's price requires a PSN account registered to that region plus that
   region's gift-card credit — card payments are geo-checked.
-- A `⚠` next to a region means its store lists the game in a currency other than the region's
-  usual one (e.g. Mexico sometimes prices in USD).
+- **Currencies that aren't the region's own.** The PS Store Mexico prices many titles in USD.
+  That is a real price a Mexican account pays, so those rows are **ranked normally** and carry a
+  grey currency badge. Add more exceptions in `ALSO_OK` in `server.js`:
+
+  ```js
+  const ALSO_OK = { MX: ['USD'] };
+  ```
+
+  A currency that is in neither `EXPECT[region]` nor `ALSO_OK[region]` is treated as a bad read
+  (usually the store served a fallback price), flagged `redirected`, and listed below the
+  ranking. Each result carries both flags: `redirected` (excluded) and `foreign` (ranked, but
+  not the local currency).
 - This project reads publicly displayed store prices for personal comparison. It is not
   affiliated with Sony/PlayStation.
