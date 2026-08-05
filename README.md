@@ -107,6 +107,15 @@ all it still shows every store's local price rather than an empty table.
   same. The filter only ever narrows — a page whose every entry looks like an upsell keeps them
   all rather than reporting no price.
 
+  The Japanese page for the same game needed a second rule. Its trial does announce itself
+  (`試用版`, caught by the presence test above), but the page also ends with two entries 90,000
+  characters after the real ones: classification `OTHER`, a bare price, and none of
+  `discountedPrice`, `upSellService` or upsell text, where every genuine entry carries all three.
+  That stray `¥2,200` outsold the `¥7,590` edition. **A priced entry with no offer machinery is
+  not an offer**, so `discountedPrice` is now required. That is structural rather than another
+  vocabulary check — `OTHER` is too vague to blanket-exclude, and the classification list has
+  surprised us four times already.
+
 - **Finding new store classifications:** `node catalog.js --classes` samples concept pages from
   `catalog.json` and reports any `storeDisplayClassification` the extractor does not know. The
   matching **fails open** — an unrecognised label counts as a game, and being cheap it wins, which

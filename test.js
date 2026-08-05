@@ -689,6 +689,53 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   const allUpsell = grab('<html>' + gotEntry('$69.99', 'FULL_GAME', { upsell: 'Trial' }));
   check(allUpsell.price === 69.99, 'a page of nothing but upsells still yields a price');
 
+  // The same game on the Japanese storefront, transcribed from the real page.
+  // Two things the US page did not have: the trial announces itself in Japanese
+  // (試用版), and the page ends with two stray entries 90,000 characters after
+  // the real ones -- classification OTHER, a bare price, and none of the offer
+  // fields. That stray ¥2,200 was beating the ¥7,590 edition.
+  const jpEntry = (price, cls, opts = {}) =>
+    '"storeDisplayClassification":"' + cls + '",' + 'x'.repeat(400) +
+    (opts.bare ? '' :
+      '"upSellService":"' + (opts.service || 'NONE') + '","exclusive":false,') +
+    '"basePrice":"' + price + '",' +
+    (opts.bare ? '' : '"discountedPrice":"' + (opts.disc || price) + '",') +
+    '"currencyCode":"JPY","displayUpsellText":' +
+    (opts.upsell ? '"' + opts.upsell + '"' : 'null') + ',';
+
+  const JP = '<html>' +
+    jpEntry('¥8,690', 'GAME_BUNDLE') +
+    jpEntry('¥8,690', 'GAME_BUNDLE') +
+    jpEntry('¥7,590', 'GAME_BUNDLE') +
+    jpEntry('¥2,200', 'GAME_BUNDLE', { upsell: '試用版' }) +
+    jpEntry('無料',    'FULL_GAME') +
+    jpEntry('¥8,690', 'FULL_GAME', { service: 'PS_PLUS', disc: '含まれます',
+                                     upsell: 'PlayStation Plus エクストラに加入してください' }) +
+    jpEntry('¥2,200', 'GAME_BUNDLE', { upsell: '試用版' }) +
+    'y'.repeat(90000) +
+    jpEntry('¥2,200', 'OTHER', { bare: true }) +
+    jpEntry('無料',    'OTHER', { bare: true });
+
+  const jpGot = grab(JP);
+  check(jpGot.price === 7590,
+    'Ghost of Tsushima JP: the ¥7,590 edition wins, not the stray ¥2,200', '-> ' + jpGot.price);
+  check(jpGot.cur === 'JPY', 'Ghost of Tsushima JP: currency is read as JPY', '-> ' + jpGot.cur);
+  check(JSON.stringify(jpGot.editions.map(e => e.price)) === '[7590,8690]',
+    'Ghost of Tsushima JP: only the two real editions are offered',
+    '-> ' + JSON.stringify(jpGot.editions.map(e => e.price)));
+  check(jpGot.suspect === false, 'Ghost of Tsushima JP: no suspicious price left to flag');
+
+  // The two rules are independent: a bare entry is dropped even when nothing
+  // about it is an upsell, and a marked upsell is dropped even when complete.
+  const bare = grab('<html>' + jpEntry('¥7,590', 'FULL_GAME') +
+                               jpEntry('¥2,200', 'OTHER', { bare: true }));
+  check(bare.price === 7590, 'an entry with no offer fields is not an offer');
+
+  // And the fallback still holds: a page of nothing but bare entries is not
+  // silently priceless.
+  const allBare = grab('<html>' + jpEntry('¥7,590', 'OTHER', { bare: true }));
+  check(allBare.price === 7590, 'a page of only bare entries still yields a price');
+
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
 })();

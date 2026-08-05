@@ -212,6 +212,15 @@ const isGame = b => !b.cls || !NOT_A_GAME.test(b.cls);
 // wording, so this holds on storefronts that localize the label.
 const isPurchase = b => !b.upsell && (!b.service || b.service === 'NONE');
 
+// A priced entry that carries none of the offer machinery is not an offer. The
+// Japanese page for the same game ends with two entries 90,000 characters after
+// the real ones -- a bare price, classification OTHER, and no discountedPrice,
+// upSellService or upsell text at all, where every genuine entry has them. That
+// stray ¥2,200 outsold the ¥7,590 edition. Requiring discountedPrice is
+// structural rather than a vocabulary check: OTHER is too vague to blanket-
+// exclude, and the classification list has already surprised us four times.
+const isOffer = b => b.disc != null;
+
 // Where the add-on carousel begins, as a character offset.
 //
 // Labels cannot be matched to prices by proximity: on a real page FULL_GAME sat
@@ -275,7 +284,7 @@ function grab(h) {
   // Then drop trials and subscription upsells, which are priced like editions
   // but are not one. Only ever narrows: a page whose every entry looks like an
   // upsell keeps them all rather than reporting no price at all.
-  const bought = usable.filter(isPurchase);
+  const bought = usable.filter(b => isPurchase(b) && isOffer(b));
   if (bought.length) usable = bought;
 
   const blocks = usable.map(b => {
