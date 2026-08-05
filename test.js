@@ -636,6 +636,59 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   dsrv.close();
 
+  // Ghost of Tsushima DIRECTOR'S CUT, transcribed from the real product page.
+  // Five entries, all classified as games: the two editions, two $19.99 trials
+  // and a PS Plus "Included" upsell that reuses the $69.99 base price. The
+  // trials were winning, and the page carries no JSON-LD at all, so the
+  // embedded blocks are the only source.
+  const gotEntry = (price, cls, opts = {}) =>
+    '"storeDisplayClassification":"' + cls + '",' + 'x'.repeat(400) +
+    '"offerApplicability":"APPLICABLE","offerIsTiedToSubscription":false,' +
+    '"type":"ADD_TO_CART","upSellService":"' + (opts.service || 'NONE') + '",' +
+    '"exclusive":false,"playabilityDate":null,' +
+    '"basePrice":"' + price + '","discountedPrice":"' + (opts.disc || price) + '",' +
+    '"currencyCode":"USD","displayDiscountText":' + (opts.discText || 'null') + ',' +
+    '"endTime":null,"displayUpsellText":' + (opts.upsell ? '"' + opts.upsell + '"' : 'null') + ',';
+
+  const GOT = '<html>' +
+    gotEntry('$69.99', 'GAME_BUNDLE') +
+    gotEntry('$59.99', 'GAME_BUNDLE') +
+    gotEntry('$19.99', 'GAME_BUNDLE', { upsell: 'Trial' }) +
+    gotEntry('$19.99', 'FULL_GAME',   { upsell: 'Trial' }) +
+    gotEntry('$69.99', 'FULL_GAME',   { service: 'PS_PLUS', disc: 'Included', discText: '"Included"' });
+
+  const got = grab(GOT);
+  check(got.price === 59.99,
+    'Ghost of Tsushima: the PS4 edition wins, not the $19.99 trial', '-> ' + got.price);
+  check(got.suspect === false,
+    'Ghost of Tsushima: nothing left to look suspicious once trials are gone');
+  check(JSON.stringify(got.editions.map(e => e.price)) === '[59.99,69.99]',
+    'Ghost of Tsushima: only real editions are offered', '-> ' + JSON.stringify(got.editions.map(e => e.price)));
+
+  // Each marker has to work on its own, since they appear on different entries.
+  const trialOnly = grab('<html>' + gotEntry('$69.99', 'FULL_GAME') +
+                                    gotEntry('$19.99', 'FULL_GAME', { upsell: 'Trial' }));
+  check(trialOnly.price === 69.99, 'a trial is excluded by displayUpsellText alone');
+
+  const plusOnly = grab('<html>' + gotEntry('$59.99', 'FULL_GAME') +
+                                   gotEntry('$9.99', 'FULL_GAME', { service: 'PS_PLUS' }));
+  check(plusOnly.price === 59.99, 'a subscription entry is excluded by upSellService alone');
+
+  // Localized wording must not matter: only presence is tested.
+  const jpTrial = grab('<html>' + gotEntry('$69.99', 'FULL_GAME') +
+                             gotEntry('$19.99', 'FULL_GAME', { upsell: '体験版' }));
+  check(jpTrial.price === 69.99, 'a localized trial label is still a trial');
+
+  // A real discount is not an upsell and must survive.
+  const sale = grab('<html>' + gotEntry('$69.99', 'FULL_GAME') +
+                               gotEntry('$69.99', 'FULL_GAME', { disc: '$17.49', discText: '"-75%"' }));
+  check(sale.price === 17.49 && sale.original === 69.99,
+    'a deeply discounted edition is kept, not mistaken for an upsell', '-> ' + sale.price);
+
+  // Never leave a page priceless: if every entry looks like an upsell, report them.
+  const allUpsell = grab('<html>' + gotEntry('$69.99', 'FULL_GAME', { upsell: 'Trial' }));
+  check(allUpsell.price === 69.99, 'a page of nothing but upsells still yields a price');
+
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
 })();

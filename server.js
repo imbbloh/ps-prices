@@ -173,7 +173,15 @@ function priceBlocks(h) {
       // entry on the page is a piece of DLC rather than the game.
       cls:  pickBack(/"storeDisplayClassification":"([A-Z_]+)"/) ||
             pick(/"storeDisplayClassification":"([A-Z_]+)"/) || null,
-      name: pick(/"name":"([^"]{0,120})"/) || null
+      name: pick(/"name":"([^"]{0,120})"/) || null,
+      // Two markers that say "this is not a purchase of the game". Both sit in
+      // the entry's own window on a real page: displayUpsellText just after the
+      // price, upSellService just before it. Read as present/absent rather than
+      // by value, so they work on every storefront -- the text is localized
+      // ("Trial", "Essai", ...) but null is null everywhere.
+      upsell:  pick(/"displayUpsellText":"([^"]+)"/) || null,
+      service: pickBack(/"upSellService":"([A-Z_]+)"/) ||
+               pick(/"upSellService":"([A-Z_]+)"/) || null
     };
   });
 }
@@ -189,6 +197,20 @@ function priceBlocks(h) {
 // caught by any of these fragments; the game classifications contain none.
 const NOT_A_GAME = /(ADD_?ON|CURRENCY|ITEM|SUBSCRIPTION|SEASON[_ ]?PASS|DLC|COSMETIC|BOOST|GAME_RELATED)/;
 const isGame = b => !b.cls || !NOT_A_GAME.test(b.cls);
+
+// Not everything priced on a game's own page is a way to buy that game. The
+// Ghost of Tsushima DIRECTOR'S CUT page carries five entries classified
+// FULL_GAME or GAME_BUNDLE: the PS4 edition at $59.99, the PS5 edition at
+// $69.99, two trial entries at $19.99, and a "Included with PS Plus" upsell.
+// The trials are the cheapest, so they won, and no classification separates
+// them -- the store labels a trial FULL_GAME exactly like the real thing.
+//
+// What does separate them is the offer itself. A real edition is an outright
+// purchase: upSellService "NONE" and no displayUpsellText. A trial carries
+// displayUpsellText ("Trial"); a subscription entry carries upSellService
+// "PS_PLUS" and prices itself "Included". Presence is what is tested, never the
+// wording, so this holds on storefronts that localize the label.
+const isPurchase = b => !b.upsell && (!b.service || b.service === 'NONE');
 
 // Where the add-on carousel begins, as a character offset.
 //
@@ -249,6 +271,12 @@ function grab(h) {
   // back to the page's own primary entry rather than letting a cheap add-on win.
   let usable = classified ? upTo.filter(isGame) : raw.slice(0, 1);
   if (!usable.length) usable = raw.filter(isGame);
+
+  // Then drop trials and subscription upsells, which are priced like editions
+  // but are not one. Only ever narrows: a page whose every entry looks like an
+  // upsell keeps them all rather than reporting no price at all.
+  const bought = usable.filter(isPurchase);
+  if (bought.length) usable = bought;
 
   const blocks = usable.map(b => {
     const base = parseNum(b.base), disc = parseNum(b.disc);

@@ -95,6 +95,18 @@ all it still shows every store's local price rather than an empty table.
 - **Diagnosing missing regions:** `node debug.js "<title | store URL | conceptId>" [REGION...]`
   prints, per region, which tier was tried and exactly how it failed — a page that never
   loaded, a page that loaded without a price, or a region search with no product links.
+- **Trials and subscription upsells are not editions.** Not everything priced on a game's own
+  page is a way to buy that game. The Ghost of Tsushima DIRECTOR'S CUT page carries five entries
+  the store classifies as games — the PS4 edition at $59.99, the PS5 edition at $69.99, two
+  $19.99 trials and an "Included with PS Plus" upsell — and the trials, being cheapest, won.
+  No classification separates them: a trial is labelled `FULL_GAME` exactly like the real thing.
+  The offer does. A real edition is an outright purchase (`upSellService":"NONE"`, no
+  `displayUpsellText`); a trial carries `displayUpsellText":"Trial"`, and a subscription entry
+  carries `upSellService":"PS_PLUS"` and prices itself `"Included"`. Only presence is tested,
+  never the wording, so a storefront that localizes the label ("Essai", "体験版") behaves the
+  same. The filter only ever narrows — a page whose every entry looks like an upsell keeps them
+  all rather than reporting no price.
+
 - **Finding new store classifications:** `node catalog.js --classes` samples concept pages from
   `catalog.json` and reports any `storeDisplayClassification` the extractor does not know. The
   matching **fails open** — an unrecognised label counts as a game, and being cheap it wins, which
