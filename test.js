@@ -226,6 +226,26 @@ check(RL.editions.length === 2 && RL.onPage === 8,
 check(RL.editions[0].price === 49.59 && RL.editions[0].original === 79.99,
   'grab() editions carry their own strikethrough', '-> ' + JSON.stringify(RL.editions[0]));
 
+// Ghost of Yotei: the add-on carried ADD_ON_PACK, which an anchored ^ADD_ON$
+// let through as a game, so a $10 pack won. Classifications are matched as
+// substrings now -- the list has been surprised three times.
+const yotei = '<html>' +
+  pad(68000) + CLS('FULL_GAME') + pad(10600) + P('$69.99', '$69.99') +
+  pad(127000) + P('$69.99', '$69.99') + pad(600) + CLS('FULL_GAME') +
+  pad(10000) + P('$79.99', '$79.99') + pad(500) + CLS('PREMIUM_EDITION') +
+  pad(38000) + CLS('ADD_ON_PACK') + pad(240) + P('$10.00', '$10.00') +
+  '</html>';
+const GY = grab(yotei);
+check(GY.price === 69.99, 'grab() Ghost of Yotei: the game, not the $10 add-on pack', '-> ' + GY.price);
+check(GY.editions.length === 2 && GY.editions[1].price === 79.99,
+  'grab() Ghost of Yotei: two game editions', '-> ' + GY.editions.map(e => e.price).join(', '));
+
+// Variants of the same idea must all read as add-ons, whatever the store calls them.
+['ADD_ON_PACK', 'ADDON_ITEM_PACK', 'GAME_RELATED', 'VIRTUAL_CURRENCY', 'ITEM', 'SEASON_PASS'].forEach(c => {
+  const h = '<html>' + P('$69.99', '$69.99') + pad(300) + CLS(c) + pad(240) + P('$4.99', '$4.99') + '</html>';
+  check(grab(h).price === 69.99, 'grab() "' + c + '" reads as an add-on', '-> ' + grab(h).price);
+});
+
 // "ITEM" alone must not be mistaken for a game.
 const itemOnly = '<html>' + blk('$69.99', '$69.99', null) + blk('$19.99', '$19.99', 'ITEM') + '</html>';
 check(grab(itemOnly).price === 69.99, 'grab() ITEM is an add-on, not a game', '-> ' + grab(itemOnly).price);

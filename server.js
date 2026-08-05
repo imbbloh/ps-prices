@@ -181,9 +181,13 @@ function priceBlocks(h) {
 // Entries the store classifies as something other than a playable game --
 // add-ons, currency packs, season passes. Anything not on this list is treated
 // as a game, so an unfamiliar classification is included rather than dropped.
-// Classifications seen on a real page: FULL_GAME and PREMIUM_EDITION for the
-// game and its editions, VIRTUAL_CURRENCY and ITEM for the add-ons.
-const NOT_A_GAME = /^(GAME_RELATED|ADD_ON|ADDON|ITEM|VIRTUAL_CURRENCY|CURRENCY|SUBSCRIPTION|SEASON_PASS|PACK)$/;
+// Classifications seen so far: FULL_GAME, PREMIUM_EDITION and GAME_BUNDLE for
+// the game and its editions; VIRTUAL_CURRENCY, ITEM and ADD_ON_PACK for the
+// add-ons. Matched as substrings rather than exact values, because the list has
+// been surprised three times now -- ITEM, then ADD_ON_PACK, which an anchored
+// ^ADD_ON$ silently let through as a game. A variant like ADDON_ITEM_PACK is
+// caught by any of these fragments; the game classifications contain none.
+const NOT_A_GAME = /(ADD_?ON|CURRENCY|ITEM|SUBSCRIPTION|SEASON[_ ]?PASS|DLC|COSMETIC|BOOST|GAME_RELATED)/;
 const isGame = b => !b.cls || !NOT_A_GAME.test(b.cls);
 
 // Where the add-on carousel begins, as a character offset.
