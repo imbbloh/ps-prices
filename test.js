@@ -566,6 +566,21 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   srv.close();
 
+  // catalog.js: the free date pickup off a grid node. The live API returns no
+  // such field, so the "no date" case is the one that runs today; the others
+  // pin what happens if it ever appears.
+  const { nodeDate } = require('./catalog.js');
+  check(nodeDate({ id: '10014719', name: 'Beast of Reincarnation' }) === null,
+    'nodeDate: a grid node without a date yields null (todays real shape)');
+  check(nodeDate({ id: '1', releaseDate: '2025-10-02T04:00:00Z' }) === '2025-10-02',
+    'nodeDate: reads an ISO timestamp down to the day');
+  check(nodeDate({ id: '1', conceptReleaseDate: '2026-04-08' }) === '2026-04-08',
+    'nodeDate: accepts the facet-named field too');
+  check(nodeDate({ id: '1', releaseDate: 'last_thirty_days' }) === null,
+    'nodeDate: a non-date value is ignored, not guessed at');
+  check(nodeDate({ id: '1', releaseDate: 1759377600000 }) === null,
+    'nodeDate: a non-string value is ignored');
+
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
 })();

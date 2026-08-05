@@ -41,9 +41,14 @@
 //   whole catalogue instead of the first 10,000. Buckets come from the live
 //   facet list, so new bands are picked up automatically.
 //
-// Saved per game: conceptId, name, firstSeen. The API exposes no release date
-// on this query, so firstSeen records when this tool first saw the game --
-// stable, and enough to date an addition. Prices are deliberately not saved:
+// Saved per game: conceptId, name, releaseDate, firstSeen. The grid query has
+// never been observed to return a release date, and neither has any other
+// GraphQL operation the concept page issues -- the date is server-rendered into
+// the HTML only, so there is nothing to fetch in bulk and --dates reads one page
+// per game. nodeDate() below still checks each grid node, costing nothing and
+// making the whole backfill unnecessary should the field ever appear.
+// firstSeen records when this tool first saw the game -- stable, and enough to
+// date an addition even when no release date can be read. Prices are not saved:
 // they change constantly and would rewrite every row daily, burying the one
 // useful signal in the diff.
 
@@ -122,6 +127,21 @@ function save(file, known) {
   return rows.length;
 }
 
+// A release date off a grid node, if one is ever there. No such field exists
+// today, so this returns null for every concept the live API returns; it is here
+// because a grid page covers 100 games and a concept page covers one, so the
+// moment the field appears the backfill stops being needed. Anything that is not
+// a plain YYYY-MM-DD prefix is ignored rather than guessed at.
+const DATE_FIELDS = ['releaseDate', 'conceptReleaseDate', 'releaseDateTime', 'topCategoryReleaseDate'];
+function nodeDate(c) {
+  for (const f of DATE_FIELDS) {
+    const v = c[f];
+    const m = typeof v === 'string' && v.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 // Collect every page of one filtered slice, adding anything not already known.
 async function collect(known, added, filterBy, label) {
   const today = new Date().toISOString().slice(0, 10);
@@ -133,8 +153,16 @@ async function collect(known, added, filterBy, label) {
     pages++;
     const items = g.concepts || [];
     for (const c of items) {
-      if (!c || !c.id || known.has(c.id)) continue;
-      known.set(c.id, { conceptId: c.id, name: c.name || null, firstSeen: today });
+      if (!c || !c.id) continue;
+      const date = nodeDate(c);
+      const before = known.get(c.id);
+      if (before) {                       // known already: only a free date is new
+        if (date && !before.releaseDate) before.releaseDate = date;
+        continue;
+      }
+      const row = { conceptId: c.id, name: c.name || null, firstSeen: today };
+      if (date) row.releaseDate = date;
+      known.set(c.id, row);
       added.push(c.name || c.id);
     }
     total = g.pageInfo ? g.pageInfo.totalCount : items.length;
@@ -241,6 +269,10 @@ async function getText(url) {
     return r.ok ? await r.text() : null;
   } catch (e) { return null; }
 }
+
+// Nothing below runs on require, so the pure helpers above can be unit-tested.
+module.exports = { nodeDate };
+if (require.main !== module) return;
 
 (async () => {
   if (has('--classes')) return classCensus(parseInt(val('--classes-sample', '40'), 10));
