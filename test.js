@@ -822,6 +822,73 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   delete process.env.PS_GQL_OP;
   delete require.cache[require.resolve('./server.js')];
 
+  // Concept resolution: the bug that priced a different game entirely.
+  const { conceptIdsRanked, sameGame, resolveConcept } = require('./server.js');
+
+  // A search page leads with a promoted tile; the game being searched for is
+  // referenced throughout. Frequency, not position, identifies it.
+  const searchPage =
+    '/concept/10015299' + 'x'.repeat(50) +          // promoted neighbour, once
+    '"conceptId":"235227"' + 'x'.repeat(50) +
+    '/concept/235227' + 'x'.repeat(50) +
+    '"conceptId":"235227"';
+  check(JSON.stringify(conceptIdsRanked(searchPage)) === '["235227","10015299"]',
+    'concept: the most-referenced id wins, not the first one on the page',
+    '-> ' + JSON.stringify(conceptIdsRanked(searchPage)));
+
+  check(sameGame('Ghost of Tsushima DIRECTOR’S CUT', 'Ghost of Tsushima'),
+    'concept: an edition suffix is still the same game');
+  check(sameGame('Ghost of Tsushima', 'Ghost of Tsushima DIRECTOR’S CUT'),
+    'concept: and it holds in the other direction');
+  check(!sameGame('Tyrion Cuthbert: Attorney of the Arcane', 'Ghost of Tsushima'),
+    'concept: a different game is not the same game');
+  check(!sameGame('', 'Ghost of Tsushima') && !sameGame('Ghost of Tsushima', null),
+    'concept: a missing name never counts as a match');
+
+  // Verification: the ranked winner is confirmed by fetching its concept page.
+  const pages = {
+    '10015299': '<script type="application/ld+json">{"name":"Tyrion Cuthbert: Attorney of the Arcane"}</script>',
+    '235227':   '<script type="application/ld+json">{"name":"Ghost of Tsushima DIRECTOR’S CUT"}</script>'
+  };
+  const fakeGet = async u => pages[(u.match(/concept\/(\d+)/) || [])[1]] || null;
+
+  // Even when the wrong id is referenced more often, the name check rejects it.
+  const skewed = '/concept/10015299 /concept/10015299 /concept/10015299 /concept/235227';
+  check(await resolveConcept(skewed, 'Ghost of Tsushima', fakeGet) === '235227',
+    'concept: a wrong id is rejected by name even when it out-ranks the right one');
+
+  check(await resolveConcept('/concept/10015299', 'Ghost of Tsushima', fakeGet) === null,
+    'concept: nothing verifiable yields no concept, rather than a confident wrong one');
+
+  check(await resolveConcept('/concept/10015299', null, fakeGet) === '10015299',
+    'concept: with no title to check against, the ranking stands alone');
+
+  check(await resolveConcept('no ids here', 'Ghost of Tsushima', fakeGet) === null,
+    'concept: a page with no concept ids yields null');
+
+  // Catalogue prefix matching, against the real catalogue in the repo.
+  const { setCatalog, catalogPrefix } = require('./server.js');
+  const realCat = loadCatalog('catalog.json');
+  if (realCat) {
+    setCatalog(realCat);
+    check(catalogPrefix('Ghost of Tsushima DIRECTOR’S CUT') === '235227',
+      'catalogue: an edition suffix still finds the concept, with no store search',
+      '-> ' + catalogPrefix('Ghost of Tsushima DIRECTOR’S CUT'));
+    check(catalogPrefix('Ghost of Tsushima') === null,
+      'catalogue: an exact name is not a prefix match (the exact lookup handles it)');
+    check(catalogPrefix('Horizon') === null,
+      'catalogue: typing less than the catalogue knows never guesses a game');
+    check(catalogPrefix('Zzzz Not A Real Game At All') === null,
+      'catalogue: an unknown title matches nothing');
+  }
+
+  // Longest wins, so a suffixed game does not match a shorter unrelated name.
+  setCatalog(Object.assign(new Map([['ghost', '1'], ['ghost of tsushima', '2']]),
+                           { names: new Map() }));
+  check(catalogPrefix('Ghost of Tsushima DIRECTOR’S CUT') === '2',
+    'catalogue: the longest matching name wins');
+  setCatalog(null);
+
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
 })();

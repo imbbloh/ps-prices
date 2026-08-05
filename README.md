@@ -116,6 +116,27 @@ all it still shows every store's local price rather than an empty table.
   vocabulary check — `OTHER` is too vague to blanket-exclude, and the classification list has
   surprised us four times already.
 
+- **Resolving the right concept.** Taking the first concept ID in a page is wrong, and quietly
+  so: a search page leads with a promoted tile and a product page carries a recommendation strip,
+  so the first `/concept/` link belongs to some other game. A lookup for Ghost of Tsushima
+  resolved that way to `10015299` — *Tyrion Cuthbert: Attorney of the Arcane* — and then priced
+  that game in every region resolved concept-first. Two changes:
+
+  - **Rank by frequency, not position.** The page's own concept is referenced many times over
+    (canonical URL, embedded state, telemetry); a neighbour's appears once or twice.
+  - **Verify by name.** The winner's concept page has to name the same game as was searched for,
+    compared by `keyName` with containment either way, so `Ghost of Tsushima` and
+    `Ghost of Tsushima DIRECTOR'S CUT` match but Tyrion Cuthbert does not. If nothing verifies,
+    the lookup returns *no* concept rather than a confident wrong one, and the product tier still
+    prices every region carrying that SKU.
+
+  The catalogue also stops missing these. It holds concepts, so it lists `Ghost of Tsushima`
+  while the store's own title is `Ghost of Tsushima DIRECTOR'S CUT`; an exact-key miss used to
+  fall through to the live search that mis-resolved. A catalogue name that is a prefix of what
+  was typed is the same game with an edition suffix, so the longest such name wins. Only that
+  direction is safe — typing more than the catalogue knows narrows the answer, whereas typing
+  less (`Horizon`) would be a guess between games.
+
 - **The regions check each other.** Every rule above is structural, but a storefront nobody has
   looked at can still publish a shape nobody has seen. So after all twenty regions resolve, they
   are reconciled against each other — twenty independent reads of the same game.

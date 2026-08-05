@@ -583,6 +583,70 @@ function productIds(h) {
 // Concept IDs, in document order, deduped. Read from both the embedded JSON
 // key and any /concept/<id> link on the page — search results often link
 // straight to the concept even when the JSON key is absent or renamed.
+// Which concept the page is actually about.
+//
+// Taking the first ID in the document is wrong, and quietly so: a search page
+// leads with a promoted tile and a product page carries a recommendation strip,
+// so the first /concept/ link belongs to some other game. A lookup for Ghost of
+// Tsushima resolved that way to 10015299 -- Tyrion Cuthbert: Attorney of the
+// Arcane -- and then priced that game in every region resolved concept-first.
+//
+// The page's own concept is referenced many times over (canonical URL, embedded
+// state, telemetry); a neighbour's appears once or twice. So rank by how often
+// each ID occurs rather than by where the first one sits.
+function conceptIdsRanked(h) {
+  const n = new Map();
+  for (const re of [/"conceptId":"?(\d+)"?/g, /\/concept\/(\d+)/g]) {
+    let m;
+    while ((m = re.exec(h))) n.set(m[1], (n.get(m[1]) || 0) + 1);
+  }
+  return [...n.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
+}
+
+// Frequency is a good guess, not a guarantee, so the winner is checked against
+// what was searched for: the concept page has to name the same game. Titles are
+// compared by keyName, and containment counts either way -- "Ghost of Tsushima"
+// and "Ghost of Tsushima DIRECTOR'S CUT" are the same game, "Tyrion Cuthbert"
+// is not. Without a title there is nothing to check against, so the ranking
+// stands on its own.
+function sameGame(a, b) {
+  const x = keyName(a || ''), y = keyName(b || '');
+  if (!x || !y) return false;
+  return x === y || x.startsWith(y) || y.startsWith(x);
+}
+
+// The catalogue holds concepts, so it lists "Ghost of Tsushima" -- while the
+// store's own title for the same game is "Ghost of Tsushima DIRECTOR'S CUT".
+// An exact key miss then fell through to a live store search, which is both
+// slow and the path that mis-resolved. A catalogue name that is a prefix of
+// what was typed is the same game with an edition suffix, so take the longest
+// such name. Only this direction is safe: typing more than the catalogue knows
+// narrows, whereas typing less ("Horizon") would be a guess between games.
+const PREFIX_MIN = 8;                    // shorter keys match far too much
+function catalogPrefix(title) {
+  const k = keyName(title);
+  if (!CATALOG || k.length < PREFIX_MIN) return null;
+  let best = null;
+  for (const name of CATALOG.keys()) {
+    if (name.length >= PREFIX_MIN && k.startsWith(name + ' ') &&
+        (!best || name.length > best.length)) best = name;
+  }
+  return best ? CATALOG.get(best) : null;
+}
+
+async function resolveConcept(h, title, get) {
+  const ranked = conceptIdsRanked(h);
+  if (!ranked.length) return null;
+  if (!title) return ranked[0];
+  for (const cid of ranked.slice(0, 3)) {
+    const page = await get(BASE + '/en-us/concept/' + cid);
+    if (page && sameGame(grab(page).name, title)) return cid;
+  }
+  // Nothing verified: better no concept at all than a confident wrong one. The
+  // product tier still prices the regions that carry the same SKU.
+  return null;
+}
+
 function conceptIds(h) {
   const out = [], seen = new Set();
   for (const re of [/"conceptId":"?(\d+)"?/g, /\/concept\/(\d+)/g]) {
@@ -789,7 +853,7 @@ async function lookup(query) {
 
   // Exact catalogue hit: no search request at all.
   if (!pid && !cid && title && CATALOG) {
-    const hit = CATALOG.get(keyName(title));
+    const hit = CATALOG.get(keyName(title)) || catalogPrefix(title);
     if (hit) { cid = hit; resolvedBy = 'catalog'; }
   }
 
@@ -799,18 +863,18 @@ async function lookup(query) {
     const html = await getText(BASE + '/en-us/search/' + encodeURIComponent(title), 3);
     const candidates = html ? productIds(html) : [];
     pid = candidates[0] || null;
-    cid = html ? conceptId(html) : null;
+    cid = html ? await resolveConcept(html, title, getText) : null;
 
     // A concept ID resolves every region at once, so it is worth a couple of
     // extra page loads to find one.
     for (const c of candidates.slice(0, 2)) {
       if (cid) break;
       const p = await getText(BASE + '/en-us/product/' + c);
-      if (p) cid = conceptId(p);
+      if (p) cid = await resolveConcept(p, title, getText);
     }
   } else if (pid && !cid) {
     const p = await getText(BASE + '/en-us/product/' + pid);
-    if (p) cid = conceptId(p);
+    if (p) cid = await resolveConcept(p, title, getText);
   }
 
   // With no productId AND no conceptId there is nothing to resolve against,
@@ -938,5 +1002,6 @@ module.exports = {
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
   keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, priceBlocks, cheapest,
   releaseDate, parseDate, isoReleaseDate, reconcile, gqlCtas, storeLocale,
+  conceptIdsRanked, sameGame, resolveConcept, catalogPrefix,
   LOCALES, EXPECT, ALSO_OK, BASE
 };
