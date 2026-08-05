@@ -581,6 +581,21 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(nodeDate({ id: '1', releaseDate: 1759377600000 }) === null,
     'nodeDate: a non-string value is ignored');
 
+  // catalog.csv: the same rows as catalog.json, in a form a spreadsheet opens.
+  const { csvRow, csvPath, CSV_COLUMNS } = require('./catalog.js');
+  check(CSV_COLUMNS.join(',') === 'conceptId,name,releaseDate,firstSeen,url',
+    'csv: column order is stable');
+  check(csvRow({ conceptId: '10014719', name: 'Beast of Reincarnation', releaseDate: '2025-10-02', firstSeen: '2026-08-04' })
+      === '"10014719","Beast of Reincarnation","2025-10-02","2026-08-04","https://store.playstation.com/en-us/concept/10014719"',
+    'csv: a plain row carries a working store link');
+  check(csvRow({ conceptId: '1', name: '"Buy The Game, I Have a Gun" -Sheesh-Man' })
+      === '"1","""Buy The Game, I Have a Gun"" -Sheesh-Man","","","https://store.playstation.com/en-us/concept/1"',
+    'csv: a real title with commas and quotes is escaped RFC 4180 style');
+  check(csvRow({ conceptId: '1', name: null }) === '"1","","","","https://store.playstation.com/en-us/concept/1"',
+    'csv: a missing field is empty, not the string null');
+  check(csvPath('catalog.json') === 'catalog.csv' && csvPath('/tmp/x.json') === '/tmp/x.csv' && csvPath('out') === 'out.csv',
+    'csv: the csv sits beside whatever --out named');
+
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
 })();

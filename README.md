@@ -113,15 +113,30 @@ all it still shows every store's local price rather than an empty table.
   page's own language-ish lines so the real wording can be added to `SCREEN_LABELS` /
   `VOICE_LABELS` in `server.js`.
 - **Game catalogue:** `catalog.json` lists the US "All games" category as
-  `{conceptId, name, firstSeen}`, collected by `catalog.js` through the same GraphQL call the
-  store's browse page makes. `.github/workflows/catalog.yml` runs it daily and commits only when
-  something changed, so the history reads as a log of new releases.
+  `{conceptId, name, releaseDate, firstSeen}`, collected by `catalog.js` through the same GraphQL
+  call the store's browse page makes. `.github/workflows/catalog.yml` runs it daily and commits
+  only when something changed, so the history reads as a log of new releases.
 
   ```
   node catalog.js          # facets and totals, writes nothing
   node catalog.js --new    # released in the last 30 days (~2 requests)
   node catalog.js --all    # the complete catalogue, price band by price band
+  node catalog.js --csv    # rebuild catalog.csv from catalog.json, no network
   ```
+
+  **`catalog.csv` is the same data as a spreadsheet**, written automatically whenever the
+  catalogue is saved and committed alongside the JSON, so it is always current and can be
+  downloaded straight from the repo:
+
+  ```
+  https://raw.githubusercontent.com/imbbloh/ps-prices/main/catalog.csv
+  ```
+
+  Columns are `conceptId, name, releaseDate, firstSeen, url` — the last a ready-made link to the
+  game's US store page. Every field is quoted RFC 4180 style, since titles carry commas and
+  quotes (`"Buy The Game, I Have a Gun" -Sheesh-Man`), and the file leads with a UTF-8 BOM so
+  Excel renders `™` and `「」` rather than mojibake. The JSON stays the source of truth: the app
+  reads it, and `--csv` re-derives the CSV from it at any time.
 
   Filters are `"<facet>:<value>"` strings, verified against the counts the API reports for its
   own facets. Two findings shape the design:

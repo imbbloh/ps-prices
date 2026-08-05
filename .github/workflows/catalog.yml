@@ -10,8 +10,10 @@ name: Update game catalogue
 #                  back-catalogue titles added to the store long after release,
 #                  which a last-30-days filter cannot see.
 #
-# Either way the commit is only made when catalog.json actually changed, so the
-# history reads as a log of what appeared.
+# Either way the commit is only made when the catalogue actually changed, so the
+# history reads as a log of what appeared. catalog.csv is written alongside
+# catalog.json from the same rows, so the repo always carries a spreadsheet-ready
+# copy without a separate export step.
 
 on:
   schedule:
@@ -73,12 +75,18 @@ jobs:
         continue-on-error: true
         run: node catalog.js --classes --classes-sample 40
 
+      # save() already writes it, but a step that fails partway could leave the
+      # two out of step. This re-derives the CSV from the JSON and needs no
+      # network, so the pair is always consistent in the commit.
+      - name: Refresh the CSV copy
+        run: node catalog.js --csv --out catalog.json
+
       - name: Commit if anything changed
         run: |
           # Stage first: catalog.json is untracked on the very first run, and
           # `git diff` alone does not see untracked files — which silently threw
           # away the first full collection.
-          git add catalog.json
+          git add catalog.json catalog.csv
           if git diff --cached --quiet; then
             echo "No changes."
             exit 0

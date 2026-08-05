@@ -6,6 +6,7 @@
 //   node catalog.js --all      # the complete catalogue, price bucket by price bucket
 //   node catalog.js --classes  # sample concept pages, report unknown classifications
 //   node catalog.js --dates    # fill in missing release dates (resumable)
+//   node catalog.js --csv      # rebuild catalog.csv from catalog.json, no network
 //
 // Discovered by watching the browse page's own network calls:
 //   operationName=categoryGridRetrieve
@@ -124,7 +125,40 @@ function save(file, known) {
     return '  ' + JSON.stringify(o);
   }).join(',\n');
   fs.writeFileSync(file, '[\n' + body + '\n]\n');
+  saveCsv(csvPath(file), rows);
   return rows.length;
+}
+
+// catalog.json -> catalog.csv, alongside it whatever --out was given.
+const csvPath = file => file.replace(/(\.json)?$/i, '') + '.csv';
+
+// RFC 4180. Titles routinely carry commas, quotes and colons -- "Marvel's
+// Spider-Man 2", 「EA SPORTS FC 27」 -- so every field is quoted and inner
+// quotes are doubled, which is what Excel, Numbers and Sheets all expect.
+const CSV_COLUMNS = ['conceptId', 'name', 'releaseDate', 'firstSeen', 'url'];
+const csvCell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+function csvRow(r) {
+  return CSV_COLUMNS.map(c => csvCell(
+    c === 'url' ? 'https://store.playstation.com/en-us/concept/' + r.conceptId : r[c]
+  )).join(',');
+}
+function saveCsv(file, rows) {
+  // A BOM so Excel opens the ™ and 「」 in these titles as UTF-8 rather than
+  // mojibake; CRLF for the same reason. Other tools ignore both.
+  const body = [CSV_COLUMNS.join(','), ...rows.map(csvRow)].join('\r\n');
+  fs.writeFileSync(file, '﻿' + body + '\r\n');
+  return rows.length;
+}
+
+// Rebuild the CSV from the JSON without touching the network, for when the
+// columns change or the file is missing.
+function csvOnly(file) {
+  const rows = [...load(file).values()]
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '') || a.conceptId.localeCompare(b.conceptId));
+  if (!rows.length) { console.log('no catalogue at ' + file); return; }
+  const out = csvPath(file);
+  saveCsv(out, rows);
+  console.log(rows.length + ' games -> ' + out);
 }
 
 // A release date off a grid node, if one is ever there. No such field exists
@@ -271,10 +305,11 @@ async function getText(url) {
 }
 
 // Nothing below runs on require, so the pure helpers above can be unit-tested.
-module.exports = { nodeDate };
+module.exports = { nodeDate, csvRow, csvPath, CSV_COLUMNS };
 if (require.main !== module) return;
 
 (async () => {
+  if (has('--csv')) return csvOnly(OUT);
   if (has('--classes')) return classCensus(parseInt(val('--classes-sample', '40'), 10));
   if (has('--dates')) return backfillDates(parseInt(val('--limit', '999999'), 10));
 
