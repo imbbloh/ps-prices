@@ -95,6 +95,13 @@ all it still shows every store's local price rather than an empty table.
 - **Diagnosing missing regions:** `node debug.js "<title | store URL | conceptId>" [REGION...]`
   prints, per region, which tier was tried and exactly how it failed — a page that never
   loaded, a page that loaded without a price, or a region search with no product links.
+- **Finding new store classifications:** `node catalog.js --classes` samples concept pages from
+  `catalog.json` and reports any `storeDisplayClassification` the extractor does not know. The
+  matching **fails open** — an unrecognised label counts as a game, and being cheap it wins, which
+  is how `ITEM` and `ADD_ON_PACK` each produced a wrong price. The weekly workflow runs this so a
+  new variant surfaces as a report rather than as a wrong price. A price sitting far below the
+  page's other entries is also flagged `suspect` and marked ⚠ in the table, since that is what an
+  add-on looks like — the number is still shown, because it may be a genuine deep discount.
 - **Diagnosing a wrong price:** `node debug.js --prices "<title | store URL>" [REGION...]`
   lists every priced entry on the page with its classification, and marks which one was chosen.
   It says explicitly when a page carries no classification, which is the case where an add-on

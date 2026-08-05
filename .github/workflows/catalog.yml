@@ -56,6 +56,15 @@ jobs:
       - name: Collect
         run: node catalog.js ${{ steps.mode.outputs.flag }} --out catalog.json
 
+      # Fails open by design: an unrecognised classification counts as a game, so
+      # a new add-on label produces a wrong price silently. Sampling for unknown
+      # values turns that into a visible report. Non-blocking -- the catalogue
+      # update should still commit.
+      - name: Look for unknown store classifications
+        if: steps.mode.outputs.flag == '--all'
+        continue-on-error: true
+        run: node catalog.js --classes --classes-sample 40
+
       - name: Commit if anything changed
         run: |
           # Stage first: catalog.json is untracked on the very first run, and

@@ -278,6 +278,16 @@ function grab(h) {
     }
   }
 
+  // An unrecognised add-on label fails open: it counts as a game, and being
+  // cheap it wins. That has happened three times (ITEM, ADD_ON_PACK). Rather
+  // than pretend the list is now complete, flag a price that sits far below the
+  // rest -- an add-on is a fraction of a game, whereas editions cluster within
+  // roughly 2x of each other. The price is still reported; it is just marked, so
+  // a bad capture shows up instead of passing silently.
+  const others = source.filter(c => c.price != null && c.price > 0 && c !== pick).map(c => c.price).sort((a, b) => a - b);
+  const median = others.length ? others[Math.floor(others.length / 2)] : null;
+  const suspect = !!(median && pick.price > 0 && pick.price < median * 0.4);
+
   const cur = pick.cur || (ld.find(c => c.cur) || {}).cur || (blocks.find(c => c.cur) || {}).cur || null;
   let discount = pick.discount;
   if (pick.original != null && pick.price > 0 && !discount) {
@@ -303,7 +313,8 @@ function grab(h) {
     original: pick.original != null && pick.original > pick.price ? pick.original : null,
     discount: pick.original != null && pick.original > pick.price ? discount : null,
     editions,                                        // all game entries, cheapest first
-    onPage: raw.length                               // every priced entry, add-ons included
+    onPage: raw.length,                              // every priced entry, add-ons included
+    suspect                                          // far below the other entries: likely an add-on
   };
 }
 
@@ -618,6 +629,7 @@ async function lookup(query) {
       redirected: r.cur != null && !isAccepted(rk, r.cur),   // excluded from ranking
       foreign: isForeign(rk, r.cur),                         // ranked, but not the local currency
       editions: r.editions || [],    // every edition of the game, cheapest first
+      suspect: !!r.suspect,          // price far below the page's other entries
       via: r.via,                    // 'concept' | 'product' | 'search' | null
       productId: r.productId,
       url: r.url || null             // the exact store page this price came from

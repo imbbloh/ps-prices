@@ -4,6 +4,7 @@
 //   node catalog.js            # facets and totals, writes nothing
 //   node catalog.js --new      # games released in the last 30 days (~2 requests)
 //   node catalog.js --all      # the complete catalogue, price bucket by price bucket
+//   node catalog.js --classes  # sample concept pages, report unknown classifications
 //
 // Discovered by watching the browse page's own network calls:
 //   operationName=categoryGridRetrieve
@@ -143,7 +144,62 @@ async function collect(known, added, filterBy, label) {
   return pages;
 }
 
+// Classifications the price extractor already knows how to treat. Anything else
+// on a store page is a variant nobody has seen, and if it labels an add-on the
+// extractor will let it through as a game -- which is how ITEM and ADD_ON_PACK
+// each produced a wrong price. Sampling for unknown values turns that into a
+// report before it becomes a bug.
+const KNOWN = /^(FULL_GAME|PREMIUM_EDITION|GAME_BUNDLE|GAME_RELATED|ADD_ON_PACK|ADD_?ON|ITEM|VIRTUAL_CURRENCY|SUBSCRIPTION|SEASON_PASS)$/;
+
+async function classCensus(sample) {
+  const rows = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  if (!rows.length) { console.log('no ' + OUT + ' to sample from'); return; }
+
+  // Spread the sample across the file rather than taking the first N, which
+  // would only ever look at titles beginning with the same letters.
+  const step = Math.max(1, Math.floor(rows.length / sample));
+  const picks = [];
+  for (let i = 0; i < rows.length && picks.length < sample; i += step) picks.push(rows[i]);
+
+  console.log('sampling ' + picks.length + ' of ' + rows.length + ' concept pages\n');
+  const seen = new Map();                       // classification -> example game
+  for (const r of picks) {
+    const h = await getText('https://store.playstation.com/en-us/concept/' + r.conceptId);
+    if (!h) { process.stdout.write('.'); continue; }
+    for (const m of h.matchAll(/"storeDisplayClassification":"([A-Z_]+)"/g)) {
+      if (!seen.has(m[1])) seen.set(m[1], r.name);
+    }
+    process.stdout.write('.');
+    await sleep(DELAY);
+  }
+
+  console.log('\n\nclassifications seen:');
+  const unknown = [];
+  for (const [cls, example] of [...seen].sort()) {
+    const isNew = !KNOWN.test(cls);
+    if (isNew) unknown.push(cls);
+    console.log('  ' + (isNew ? 'NEW  ' : '     ') + cls.padEnd(24) + 'e.g. ' + example);
+  }
+  if (unknown.length) {
+    console.log('\n' + unknown.length + ' unknown classification(s): ' + unknown.join(', '));
+    console.log('If any names an add-on, add it to NOT_A_GAME in server.js.');
+    process.exitCode = 1;                        // make the workflow surface it
+  } else {
+    console.log('\nnothing new.');
+  }
+}
+
+async function getText(url) {
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
+                                 signal: AbortSignal.timeout(20000) });
+    return r.ok ? await r.text() : null;
+  } catch (e) { return null; }
+}
+
 (async () => {
+  if (has('--classes')) return classCensus(parseInt(val('--classes-sample', '40'), 10));
+
   // One call with facets: totals, and the price bands used to partition.
   const probe = await grid(0, 1, [], []);
   const facets = probe.facetOptions || [];

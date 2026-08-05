@@ -54,6 +54,7 @@
   a.store:hover,a.store:focus-visible{color:var(--accent);border-bottom-color:var(--accent)}
   .was{display:block;color:var(--dim);font-size:.78em;text-decoration:line-through;margin-top:1px}
   .eds{display:block;color:var(--dim);font-size:.74em;margin-top:2px;cursor:help}
+  .odd{color:var(--warn);cursor:help;margin-left:4px}
   .sugwrap{position:relative;flex:1 1 200px;min-width:0;display:flex}
   .sug{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;background:var(--panel2);
        border:1px solid var(--line);border-radius:12px;overflow:hidden;display:none;
@@ -155,14 +156,20 @@ function priceCell(x){
   // A range rather than a list: it says other editions exist and how far up they
   // go, without adding a row's worth of prices that cannot be compared across
   // regions anyway. The full set, each with its own discount, is on hover.
+  // Marked when the price sits far below the page's other entries, which is
+  // what an add-on looks like. Shown rather than hidden: the number may be
+  // right, and the store link is one click away to check.
+  const odd=x.odd
+    ? '<span class="odd" title="This is far below the other editions on the page — it may be an add-on rather than the game. Open the store page to check.">⚠</span>'
+    : '';
   const eds=x.eds||[];
   const extra=eds.length>1
     ? '<span class="eds" title="'+esc('All editions: '+eds.map(e=>
         e.local+(e.was?' (was '+e.was+(e.off?' '+e.off:'')+')':'')).join('  ·  '))+'">'
       + eds.length+' editions, up to '+eds[eds.length-1].local+'</span>'
     : '';
-  if(!x.url||!/^https:\/\/store\.playstation\.com\//.test(x.url)) return x.local+was+extra;
-  return '<a class="store" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" title="Open the '+esc(x.r)+' store page">'+x.local+'</a>'+was+extra;
+  if(!x.url||!/^https:\/\/store\.playstation\.com\//.test(x.url)) return x.local+odd+was+extra;
+  return '<a class="store" href="'+esc(x.url)+'" target="_blank" rel="noopener noreferrer" title="Open the '+esc(x.r)+' store page">'+x.local+'</a>'+odd+was+extra;
 }
 function fmt(cur,val){ try{return new Intl.NumberFormat(undefined,{style:'currency',currency:cur,maximumFractionDigits:2}).format(val);}catch(e){return val.toLocaleString()+' '+cur;} }
 
@@ -301,8 +308,9 @@ async function run(){
     const toTarget=(price,cur)=> (rate(cur)&&rate(target)) ? (price/rate(cur))*rate(target) : null;
 
     const rows=pr.results.map(x=>{
-      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false, foreign:false, url:null, was:null, off:null, en:x.english, langs:null, eds:[]};
+      if(x.price==null) return {r:x.region, price:null, local:'—', conv:null, red:false, foreign:false, url:null, was:null, off:null, en:x.english, langs:null, eds:[], odd:false};
       return {r:x.region, cur:x.currency, price:x.price, local:fmt(x.currency,x.price), conv:toTarget(x.price,x.currency), red:x.redirected, foreign:x.foreign, url:x.url,
+              odd:!!x.suspect,
               was:x.original!=null?fmt(x.currency,x.original):null, off:x.discount||null,
               en:x.english, langs:x.screenLanguages||x.voiceLanguages||null,
               eds:(x.editions||[]).map(e=>({
@@ -367,6 +375,9 @@ function render(rows, gameName, target){
   if(redir.length) n.push(redir.map(x=>x.r).join(', ')+' priced in '+[...new Set(redir.map(x=>x.cur))].join('/')+' — excluded from the ranking.');
   if(noconv.length) n.push(noconv.length+' region(s) have no FX rate.');
   if(bad.length) n.push(bad.map(x=>x.r).join(', ')+' — no price found.');
+  const oddRows=[...good,...redir,...noconv].filter(x=>x.odd);
+  if(oddRows.length) n.push('⚠ '+oddRows.map(x=>x.r).join(', ')+
+    ' — price far below the other editions; may be an add-on rather than the game.');
   $('note').innerHTML=n.join('<br>');
 }
 
