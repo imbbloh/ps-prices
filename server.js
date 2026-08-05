@@ -666,6 +666,57 @@ async function region(pid, cid, loc, title) {
            screenLanguages: null, voiceLanguages: null, editions: [], via: null, productId: null, url: null };
 }
 
+// The store's own page does not parse HTML to price itself: it calls this
+// persisted GraphQL query, which returns editions and offers as typed JSON.
+// Everything the HTML path has to infer -- which price belongs to which entry,
+// whether an entry is a trial, whether it is an offer at all -- is a field here.
+//
+// Two reasons this cannot be the only path. The sha256Hash identifies a
+// persisted query and changes whenever the store redeploys its front end, and
+// the endpoint answers per storefront rather than per URL: the locale comes
+// from a header, so a wrong or missing one silently prices the caller's own
+// region. Both failures are recoverable by falling back to the page.
+const GQL = process.env.PS_GQL_OP || 'https://web.np.playstation.com/api/graphql/v1/op';
+const GQL_OP = 'conceptRetrieveForCtasWithPrice';
+const GQL_HASH = process.env.PS_GQL_HASH ||
+  '19af6218e77e94bd8ccdf971a4be7e9397e27b63b761aeb0440d918689f585db';
+
+// 'ja-jp' -> 'ja-JP': the header wants the region subtag capitalised, which is
+// how the store sends it. Everything else in this file uses our lower-case form.
+const storeLocale = loc => {
+  const [lang, reg] = ('' + loc).split('-');
+  return reg ? lang + '-' + reg.toUpperCase() : lang;
+};
+
+// Returns the parsed response, or null for anything that went wrong -- a
+// rotated hash, a network failure, a shape we did not expect. Never throws:
+// every caller has the HTML page to fall back to.
+async function gqlCtas(conceptId, loc) {
+  if (!conceptId) return null;
+  const url = GQL + '?operationName=' + GQL_OP
+    + '&variables=' + encodeURIComponent(JSON.stringify({ conceptId: String(conceptId) }))
+    + '&extensions=' + encodeURIComponent(JSON.stringify(
+        { persistedQuery: { version: 1, sha256Hash: GQL_HASH } }));
+  try {
+    const r = await fetch(url, {
+      headers: {
+        // Apollo rejects a request carrying neither as possible CSRF.
+        'apollo-require-preflight': 'true',
+        'x-apollo-operation-name': GQL_OP,
+        // Without this the endpoint geolocates by caller IP, which is how the
+        // catalogue collector once returned the GB storefront from a UK runner.
+        'x-psn-store-locale-override': storeLocale(loc),
+        'Accept-Language': storeLocale(loc) + ',' + ('' + loc).split('-')[0] + ';q=0.9',
+        'User-Agent': UA
+      },
+      signal: AbortSignal.timeout(12000)
+    });
+    const j = await r.json().catch(() => null);
+    if (!j || j.errors || !j.data) return null;
+    return j.data;
+  } catch (e) { return null; }
+}
+
 // Cross-region reconciliation: the twenty regions are twenty independent reads
 // of the same game, so they can check each other without knowing a word of any
 // storefront's language.
@@ -886,6 +937,6 @@ module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
   keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, priceBlocks, cheapest,
-  releaseDate, parseDate, isoReleaseDate, reconcile,
+  releaseDate, parseDate, isoReleaseDate, reconcile, gqlCtas, storeLocale,
   LOCALES, EXPECT, ALSO_OK, BASE
 };

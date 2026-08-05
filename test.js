@@ -777,6 +777,51 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
           .every(r => !r.adjusted),
     'reconcile: unpriced and single-edition regions are left as they are');
 
+  // gqlCtas(): transport only. The mapping from its response to prices waits on
+  // a look at a real one; what is pinned here is that the request is built the
+  // way the store's own page builds it, and that nothing throws.
+  const { gqlCtas, storeLocale } = require('./server.js');
+  check(storeLocale('ja-jp') === 'ja-JP' && storeLocale('en-us') === 'en-US' && storeLocale('de') === 'de',
+    'gql: the locale header capitalises the region subtag');
+
+  let seen = null;
+  const gsrv = http.createServer((req, res) => {
+    seen = { url: req.url, headers: req.headers };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(req.url.includes('boom')
+      ? { errors: [{ message: 'PersistedQueryNotFound' }] }
+      : { data: { conceptRetrieveForCtasWithPrice: { id: '10000886' } } }));
+  });
+  await new Promise(r => gsrv.listen(0, r));
+  process.env.PS_GQL_OP = 'http://localhost:' + gsrv.address().port + '/op';
+  delete require.cache[require.resolve('./server.js')];
+  const gql2 = require('./server.js');
+
+  const data = await gql2.gqlCtas('10000886', 'ja-jp');
+  check(data && data.conceptRetrieveForCtasWithPrice.id === '10000886',
+    'gql: a good response comes back as data');
+  check(/operationName=conceptRetrieveForCtasWithPrice/.test(seen.url) &&
+        decodeURIComponent(seen.url).includes('"conceptId":"10000886"') &&
+        decodeURIComponent(seen.url).includes('"version":1'),
+    'gql: operation, variables and persisted query are all in the request');
+  check(seen.headers['x-psn-store-locale-override'] === 'ja-JP',
+    'gql: the storefront is pinned by header, not left to caller IP',
+    '-> ' + seen.headers['x-psn-store-locale-override']);
+  check(seen.headers['apollo-require-preflight'] === 'true' &&
+        seen.headers['x-apollo-operation-name'] === 'conceptRetrieveForCtasWithPrice',
+    'gql: the CSRF headers Apollo demands are present');
+
+  process.env.PS_GQL_HASH = 'boom';
+  delete require.cache[require.resolve('./server.js')];
+  check(await require('./server.js').gqlCtas('10000886', 'ja-jp') === null,
+    'gql: a rotated hash yields null so the page path can take over');
+  check(await gql2.gqlCtas(null, 'ja-jp') === null, 'gql: no concept id, no request');
+  delete process.env.PS_GQL_HASH;
+
+  gsrv.close();
+  delete process.env.PS_GQL_OP;
+  delete require.cache[require.resolve('./server.js')];
+
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
 })();
