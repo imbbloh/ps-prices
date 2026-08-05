@@ -471,11 +471,13 @@ function languages(h) {
 
 // Release date, from the same page the price and languages come from.
 //
-// An embedded ISO timestamp is preferred because it is unambiguous. The spec
-// table is the fallback, and its numeric dates are not: "4/8/2026" is April 8
-// on the US store and 4 August on the Brazilian one. So the locale decides the
-// order, and a date that cannot be read either way is left null rather than
-// guessed -- a wrong release date is worse than a missing one.
+// Concept pages carry an ISO timestamp -- "releaseDate":"2025-10-02T04:00:00Z"
+// -- so the normal path is unambiguous and the storefront's date format never
+// enters into it. The spec table is a fallback for pages that lack the field,
+// and its numeric dates ARE ambiguous: "4/8/2026" is April 8 on the US store
+// and 4 August on the Brazilian one. There the locale decides the order, and a
+// date that cannot be read either way is left null rather than guessed -- a
+// wrong release date is worse than a missing one.
 const DATE_LABELS = ['release date', 'lancamento', 'lanzamiento', 'premiera', 'erscheinungsdatum',
   'cikis tarihi', 'дата виходу', 'дата выхода', '発売日', '発売予定日', '출시일', '上市日期', '發售日', '发售日'];
 

@@ -261,6 +261,10 @@ check(grab(unknownAddon).price === 69.99, 'grab() drops everything after the add
 // Release dates. An embedded ISO timestamp is unambiguous and preferred; the
 // spec table is the fallback and its numeric dates are not, so the storefront
 // decides the order and anything unreadable stays null.
+// The exact shape a live concept page carries. Being ISO, it sidesteps the
+// month/day ambiguity entirely -- the spec table below is only a safety net.
+check(releaseDate('...,"releaseDate":"2025-10-02T04:00:00Z",...') === '2025-10-02',
+  'releaseDate() reads the ISO field a real page carries');
 check(releaseDate('x{"releaseDate":"2026-08-04T00:00:00Z"}y') === '2026-08-04',
   'releaseDate() prefers an embedded ISO date');
 check(releaseDate('<dl><dt>Release Date</dt><dd>4/8/2026</dd></dl>', 'en-us') === '2026-04-08',

@@ -135,8 +135,13 @@ all it still shows every store's local price rather than an empty table.
     `--all` still matters: it catches back-catalogue titles added to the store long after their
     release, which a last-30-days filter cannot see.
 
-  No release date is exposed on this query and a persisted query's fields cannot be changed by
-  the caller, so `firstSeen` records when this tool first saw a game instead. Prices are
+  **Release dates** are not on the grid query, but every concept page carries one as an ISO
+  timestamp (`"releaseDate":"2025-10-02T04:00:00Z"`), so `node catalog.js --dates` fills them in
+  — one fetch per game, ~2.6 GB gzipped and about half an hour at `--pool 4`, needed once. Only
+  rows without a date are touched, so it resumes after an interruption and `--limit` chunks it;
+  the workflow runs 2,000 a day. Being ISO, the storefront's date format never enters into it.
+  `firstSeen` still records when this tool first saw a game, which is a different thing from when
+  the game came out. Prices are
   deliberately not stored: they change constantly and would rewrite every row daily, burying the
   one useful signal in the diff.
 
