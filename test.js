@@ -7,7 +7,8 @@ const PORT = 39217;
 process.env.PS_BASE = 'http://localhost:' + PORT;
 
 const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
-        isAccepted, isForeign, region, languages, keyName, loadCatalog } = require('./server.js');
+        isAccepted, isForeign, region, languages, keyName, loadCatalog,
+        releaseDate, parseDate } = require('./server.js');
 const http = require('http');
 
 let fails = 0;
@@ -256,6 +257,24 @@ const unknownAddon = '<html>' + blk('$69.99', '$69.99', null) +
   blk('$9.99', '$9.99', 'VIRTUAL_CURRENCY') + blk('$1.99', '$1.99', 'SOMETHING_ELSE') + '</html>';
 check(grab(unknownAddon).price === 69.99, 'grab() drops everything after the add-on carousel starts',
   '-> ' + grab(unknownAddon).price);
+
+// Release dates. An embedded ISO timestamp is unambiguous and preferred; the
+// spec table is the fallback and its numeric dates are not, so the storefront
+// decides the order and anything unreadable stays null.
+check(releaseDate('x{"releaseDate":"2026-08-04T00:00:00Z"}y') === '2026-08-04',
+  'releaseDate() prefers an embedded ISO date');
+check(releaseDate('<dl><dt>Release Date</dt><dd>4/8/2026</dd></dl>', 'en-us') === '2026-04-08',
+  'releaseDate() reads a US spec table as month/day');
+check(releaseDate('<dl><dt>Lançamento</dt><dd>4/8/2026</dd></dl>', 'pt-br') === '2026-08-04',
+  'releaseDate() reads a Brazilian spec table as day/month');
+check(releaseDate('<dl><dt>発売日</dt><dd>2026年8月4日</dd></dl>', 'ja-jp') === '2026-08-04',
+  'releaseDate() reads a Japanese spec table');
+check(parseDate('25/8/2026', 'en-us') === '2026-08-25',
+  'parseDate() a day above 12 settles the order whatever the locale');
+check(releaseDate('<html><p>Coming soon</p></html>') === null,
+  'releaseDate() absent -> null, never a guess');
+check(parseDate('99/99/2026', 'en-us') === null, 'parseDate() rejects an impossible date');
+check(parseDate('4/8/1200', 'en-us') === null, 'parseDate() rejects an implausible year');
 
 // Language support. Screen languages (subtitles/UI) decide whether a
 // foreign-region copy is playable; "unknown" must stay distinct from "no".

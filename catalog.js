@@ -5,6 +5,7 @@
 //   node catalog.js --new      # games released in the last 30 days (~2 requests)
 //   node catalog.js --all      # the complete catalogue, price bucket by price bucket
 //   node catalog.js --classes  # sample concept pages, report unknown classifications
+//   node catalog.js --dates    # fill in missing release dates (resumable)
 //
 // Discovered by watching the browse page's own network calls:
 //   operationName=categoryGridRetrieve
@@ -66,6 +67,7 @@ const OUT = val('--out', 'catalog.json');
 // returned the GB storefront (price bands in pounds, a different game count)
 // while the same call from a browser on the en-us site returned the US one.
 const LOCALE = val('--locale', 'en-US');
+const POOL = Math.min(parseInt(val('--pool', '4'), 10), 8);   // parallel page fetches
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function grid(offset, size = SIZE, filterBy = [], facetOptions = []) {
@@ -112,6 +114,7 @@ function save(file, known) {
     .sort((a, b) => (a.name || '').localeCompare(b.name || '') || a.conceptId.localeCompare(b.conceptId));
   const body = rows.map(r => {
     const o = { conceptId: r.conceptId, name: r.name };
+    if (r.releaseDate) o.releaseDate = r.releaseDate;
     if (r.firstSeen) o.firstSeen = r.firstSeen;
     return '  ' + JSON.stringify(o);
   }).join(',\n');
@@ -189,6 +192,48 @@ async function classCensus(sample) {
   }
 }
 
+// Release dates are not on the grid query, but they are on each concept page --
+// the same page the price and language parsing already read. One fetch per game
+// is unavoidable; what makes it affordable is that it is needed once. The pass
+// only touches rows with no date, so it resumes after an interruption and later
+// runs cost only the handful of games added since.
+async function backfillDates(limit) {
+  const { releaseDate } = require('./server.js');
+  const rows = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  const todo = rows.filter(r => !r.releaseDate).slice(0, limit);
+  console.log(rows.length + ' games, ' + rows.filter(r => r.releaseDate).length + ' already dated');
+  if (!todo.length) { console.log('nothing to do'); return; }
+  console.log('fetching ' + todo.length + ' concept pages at concurrency ' + POOL + '\n');
+
+  let done = 0, found = 0;
+  const started = Date.now();
+  const workers = Array.from({ length: POOL }, async () => {
+    for (;;) {
+      const r = todo.shift();
+      if (!r) return;
+      const h = await getText('https://store.playstation.com/en-us/concept/' + r.conceptId);
+      const d = h && releaseDate(h, 'en-us');
+      if (d) { r.releaseDate = d; found++; }
+      if (++done % 250 === 0) {
+        const rate = done / ((Date.now() - started) / 1000);
+        console.log('  ' + done + ' fetched, ' + found + ' dated, ' +
+                    Math.round(rate * 60) + '/min');
+      }
+      await sleep(DELAY);
+    }
+  });
+  await Promise.all(workers);
+
+  // Write through the same saver so ordering and formatting stay identical.
+  const known = new Map(rows.map(r => [r.conceptId, r]));
+  const total = save(OUT, known);
+  console.log('\ndated ' + found + ' of ' + done + ' fetched');
+  console.log(total + ' games in ' + OUT + ', ' +
+              rows.filter(r => r.releaseDate).length + ' with a release date');
+  const missing = rows.filter(r => !r.releaseDate).length;
+  if (missing) console.log(missing + ' still undated — re-run to continue');
+}
+
 async function getText(url) {
   try {
     const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
@@ -199,6 +244,7 @@ async function getText(url) {
 
 (async () => {
   if (has('--classes')) return classCensus(parseInt(val('--classes-sample', '40'), 10));
+  if (has('--dates')) return backfillDates(parseInt(val('--limit', '999999'), 10));
 
   // One call with facets: totals, and the price bands used to partition.
   const probe = await grid(0, 1, [], []);

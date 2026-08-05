@@ -56,6 +56,14 @@ jobs:
       - name: Collect
         run: node catalog.js ${{ steps.mode.outputs.flag }} --out catalog.json
 
+      # One concept page per game, so the first pass is ~12,700 fetches. Chunked
+      # at 2,000 a run it backfills in under a week without a marathon job, and
+      # once done costs only the handful of games added since -- the pass only
+      # touches rows that have no date.
+      - name: Backfill release dates
+        continue-on-error: true
+        run: node catalog.js --dates --limit 2000 --pool 4 --out catalog.json
+
       # Fails open by design: an unrecognised classification counts as a game, so
       # a new add-on label produces a wrong price silently. Sampling for unknown
       # values turns that into a visible report. Non-blocking -- the catalogue

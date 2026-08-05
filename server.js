@@ -469,6 +469,61 @@ function languages(h) {
   return { screen, voice, english, source };
 }
 
+// Release date, from the same page the price and languages come from.
+//
+// An embedded ISO timestamp is preferred because it is unambiguous. The spec
+// table is the fallback, and its numeric dates are not: "4/8/2026" is April 8
+// on the US store and 4 August on the Brazilian one. So the locale decides the
+// order, and a date that cannot be read either way is left null rather than
+// guessed -- a wrong release date is worse than a missing one.
+const DATE_LABELS = ['release date', 'lancamento', 'lanzamiento', 'premiera', 'erscheinungsdatum',
+  'cikis tarihi', 'дата виходу', 'дата выхода', '発売日', '発売予定日', '출시일', '上市日期', '發售日', '发售日'];
+
+function releaseDate(h, loc = 'en-us') {
+  // 1. an ISO timestamp in the embedded state
+  const iso = (h.match(/"releaseDate"\s*:\s*"(\d{4}-\d{2}-\d{2})/) ||
+               h.match(/"releaseDateTime"\s*:\s*"(\d{4}-\d{2}-\d{2})/) || [])[1];
+  if (iso) return iso;
+
+  // 2. the spec table, read like the language rows
+  const lines = textLines(h);
+  const alone = new RegExp('^(' + DATE_LABELS.join('|') + ')\\s*:?$', 'i');
+  const inline = new RegExp('^(' + DATE_LABELS.join('|') + ')\\s*:\\s*(.+)$', 'i');
+  for (let i = 0; i < lines.length; i++) {
+    const n = norm(lines[i]);
+    let v = null;
+    if (inline.test(n)) v = lines[i].slice(lines[i].indexOf(':') + 1).trim();
+    else if (alone.test(n)) {
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        if (!/:$/.test(lines[j])) { v = lines[j].trim(); break; }
+      }
+    }
+    if (!v) continue;
+    const d = parseDate(v, loc);
+    if (d) return d;
+  }
+  return null;
+}
+
+function parseDate(v, loc) {
+  const m = v.match(/(\d{1,4})\s*[\/.\-年]\s*(\d{1,2})\s*[\/.\-月]\s*(\d{1,4})/);
+  if (!m) return null;
+  let [, a, b, c] = m.map(Number);
+  let y, mo, da;
+  if (a > 31) { y = a; mo = b; da = c; }                       // 2026-08-04 or 2026/8/4
+  else if (c > 31) {
+    y = c;
+    // "4/8/2026" is April 8 on a US storefront and 4 August elsewhere. When one
+    // of the numbers exceeds 12 the order is decided for us.
+    if (a > 12) { da = a; mo = b; }
+    else if (b > 12) { mo = a; da = b; }
+    else if (/^en-us$/i.test(loc)) { mo = a; da = b; }
+    else { da = a; mo = b; }
+  } else return null;
+  if (!(y > 1990 && y < 2100 && mo >= 1 && mo <= 12 && da >= 1 && da <= 31)) return null;
+  return y + '-' + String(mo).padStart(2, '0') + '-' + String(da).padStart(2, '0');
+}
+
 // All product IDs on a page, in document order, deduped.
 function productIds(h) {
   const out = [], seen = new Set(), re = /\/product\/([A-Z0-9][\w-]{6,})/gi;
@@ -720,5 +775,6 @@ module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
   keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, priceBlocks, cheapest,
+  releaseDate, parseDate,
   LOCALES, EXPECT, ALSO_OK, BASE
 };
