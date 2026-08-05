@@ -5,7 +5,7 @@
 //   node catalog.js --new      # games released in the last 30 days (~2 requests)
 //   node catalog.js --all      # the complete catalogue, price bucket by price bucket
 //   node catalog.js --classes  # sample concept pages, report unknown classifications
-//   node catalog.js --dates    # fill in missing release dates (resumable)
+//   node catalog.js --dates    # fill in missing release dates (resumable, checkpointed)
 //   node catalog.js --csv      # rebuild catalog.csv from catalog.json, no network
 //
 // Discovered by watching the browse page's own network calls:
@@ -73,7 +73,11 @@ const OUT = val('--out', 'catalog.json');
 // returned the GB storefront (price bands in pounds, a different game count)
 // while the same call from a browser on the en-us site returned the US one.
 const LOCALE = val('--locale', 'en-US');
-const POOL = Math.min(parseInt(val('--pool', '4'), 10), 8);   // parallel page fetches
+const POOL = Math.min(parseInt(val('--pool', '8'), 10), 16);  // parallel page fetches
+// Zero by default: --dates fetches ordinary store pages, not the API, and each
+// worker is already paced by its own round trip. Set it if the store pushes back.
+const DATE_DELAY = parseInt(val('--date-delay', '0'), 10);
+const CHECKPOINT = parseInt(val('--checkpoint', '500'), 10);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function grid(offset, size = SIZE, filterBy = [], facetOptions = []) {
@@ -254,47 +258,105 @@ async function classCensus(sample) {
   }
 }
 
-// Release dates are not on the grid query, but they are on each concept page --
-// the same page the price and language parsing already read. One fetch per game
-// is unavoidable; what makes it affordable is that it is needed once. The pass
-// only touches rows with no date, so it resumes after an interruption and later
-// runs cost only the handful of games added since.
+// One page per game is unavoidable -- no bulk endpoint carries the date -- so
+// the cost is bytes and wall clock, and both are cut here:
+//
+//   * getUntilDate() stops reading each page at the ISO field instead of
+//     downloading the whole ~1.2 MB document.
+//   * no fixed sleep between fetches. The 400 ms one belongs to the GraphQL
+//     walk, where it is politeness towards an API; these are ordinary page
+//     requests and each worker is already serialised by its own round trip.
+//     --date-delay puts a pause back if the store starts pushing back.
+//   * the pool defaults to 8 rather than 4.
+//
+// Progress is checkpointed every CHECKPOINT pages, so a run killed by a job
+// timeout keeps everything it had already found rather than discarding the lot.
 async function backfillDates(limit) {
   const { releaseDate } = require('./server.js');
   const rows = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+  const known = new Map(rows.map(r => [r.conceptId, r]));
   const todo = rows.filter(r => !r.releaseDate).slice(0, limit);
   console.log(rows.length + ' games, ' + rows.filter(r => r.releaseDate).length + ' already dated');
   if (!todo.length) { console.log('nothing to do'); return; }
-  console.log('fetching ' + todo.length + ' concept pages at concurrency ' + POOL + '\n');
+  console.log('fetching ' + todo.length + ' concept pages at concurrency ' + POOL +
+              (DATE_DELAY ? ', ' + DATE_DELAY + 'ms apart' : '') + '\n');
 
-  let done = 0, found = 0;
+  let done = 0, found = 0, bytes = 0, full = 0, saved = 0;
   const started = Date.now();
+  const report = () => {
+    const secs = (Date.now() - started) / 1000;
+    console.log('  ' + done + ' fetched, ' + found + ' dated, ' +
+                Math.round(done / secs * 60) + '/min, ' +
+                Math.round(bytes / done / 1024) + ' kB/page' +
+                (full ? ', ' + full + ' read in full' : ''));
+  };
+
   const workers = Array.from({ length: POOL }, async () => {
     for (;;) {
       const r = todo.shift();
       if (!r) return;
-      const h = await getText('https://store.playstation.com/en-us/concept/' + r.conceptId);
-      const d = h && releaseDate(h, 'en-us');
+      const got = await getUntilDate('https://store.playstation.com/en-us/concept/' + r.conceptId);
+      bytes += got.bytes;
+      // A date off the stream needs no parsing; anything else means the ISO
+      // field never appeared, so the spec table is the remaining chance.
+      let d = got.date;
+      if (!d && got.text) { full++; d = releaseDate(got.text, 'en-us'); }
       if (d) { r.releaseDate = d; found++; }
-      if (++done % 250 === 0) {
-        const rate = done / ((Date.now() - started) / 1000);
-        console.log('  ' + done + ' fetched, ' + found + ' dated, ' +
-                    Math.round(rate * 60) + '/min');
-      }
-      await sleep(DELAY);
+      done++;
+      if (done % 250 === 0) report();
+      if (done % CHECKPOINT === 0) { save(OUT, known); saved = done; }
+      if (DATE_DELAY) await sleep(DATE_DELAY);
     }
   });
   await Promise.all(workers);
 
   // Write through the same saver so ordering and formatting stay identical.
-  const known = new Map(rows.map(r => [r.conceptId, r]));
   const total = save(OUT, known);
-  console.log('\ndated ' + found + ' of ' + done + ' fetched');
+  const mins = ((Date.now() - started) / 60000).toFixed(1);
+  console.log('\ndated ' + found + ' of ' + done + ' fetched in ' + mins + ' min, ' +
+              (bytes / 1048576).toFixed(0) + ' MB read' +
+              (saved ? ' (checkpointed at ' + saved + ')' : ''));
   console.log(total + ' games in ' + OUT + ', ' +
               rows.filter(r => r.releaseDate).length + ' with a release date');
   const missing = rows.filter(r => !r.releaseDate).length;
   if (missing) console.log(missing + ' still undated — re-run to continue');
 }
+
+// Reads a page only as far as the release date. A concept page is well over a
+// megabyte, but the ISO field sits in the server-rendered payload near the top,
+// so streaming the body and dropping the connection the moment it matches skips
+// most of the download -- which is what made the backfill slow, not the request
+// count. Falls back to the whole page when the field never appears, so the spec
+// table is still available to parse.
+async function getUntilDate(url) {
+  const { isoReleaseDate } = require('./server.js');
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9' },
+                                 signal: ctl.signal });
+    if (!r.ok || !r.body) return { date: null, text: null, bytes: 0 };
+    const dec = new TextDecoder();
+    let text = '', bytes = 0, scan = 0, date = null;
+    for await (const chunk of r.body) {
+      bytes += chunk.length;
+      text += dec.decode(chunk, { stream: true });
+      // Only the newly arrived tail can complete a match, and OVERLAP covers a
+      // field split across two chunks, so this stays linear instead of
+      // re-scanning the whole buffer on every chunk.
+      date = isoReleaseDate(text.slice(scan));
+      // Break rather than abort here: aborting mid-iteration makes the loop's
+      // own cleanup reject, and the catch below would then throw away the date
+      // that had just been found. Leaving the loop closes the stream cleanly.
+      if (date) break;
+      scan = Math.max(0, text.length - OVERLAP);
+    }
+    return date ? { date, text: null, bytes }
+                : { date: null, text: text + dec.decode(), bytes };
+  } catch (e) { return { date: null, text: null, bytes: 0 }; }
+  finally { clearTimeout(timer); }
+}
+const OVERLAP = 128;                    // > the longest ISO field pattern
 
 async function getText(url) {
   try {
@@ -305,7 +367,7 @@ async function getText(url) {
 }
 
 // Nothing below runs on require, so the pure helpers above can be unit-tested.
-module.exports = { nodeDate, csvRow, csvPath, CSV_COLUMNS };
+module.exports = { nodeDate, csvRow, csvPath, CSV_COLUMNS, getUntilDate };
 if (require.main !== module) return;
 
 (async () => {

@@ -481,10 +481,16 @@ function languages(h) {
 const DATE_LABELS = ['release date', 'lancamento', 'lanzamiento', 'premiera', 'erscheinungsdatum',
   'cikis tarihi', 'дата виходу', 'дата выхода', '発売日', '発売予定日', '출시일', '上市日期', '發售日', '发售日'];
 
+// The ISO field on its own. Split out because the catalogue backfill streams a
+// page and stops reading the moment this matches, so both must look for exactly
+// the same thing -- the longest of these patterns is ~40 characters, which sets
+// the overlap the streaming reader keeps between chunks.
+const ISO_DATE = /"release(?:Date|DateTime)"\s*:\s*"(\d{4}-\d{2}-\d{2})/;
+const isoReleaseDate = h => (h.match(ISO_DATE) || [])[1] || null;
+
 function releaseDate(h, loc = 'en-us') {
   // 1. an ISO timestamp in the embedded state
-  const iso = (h.match(/"releaseDate"\s*:\s*"(\d{4}-\d{2}-\d{2})/) ||
-               h.match(/"releaseDateTime"\s*:\s*"(\d{4}-\d{2}-\d{2})/) || [])[1];
+  const iso = isoReleaseDate(h);
   if (iso) return iso;
 
   // 2. the spec table, read like the language rows
@@ -777,6 +783,6 @@ module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
   keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, priceBlocks, cheapest,
-  releaseDate, parseDate,
+  releaseDate, parseDate, isoReleaseDate,
   LOCALES, EXPECT, ALSO_OK, BASE
 };

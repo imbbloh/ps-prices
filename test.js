@@ -596,6 +596,46 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(csvPath('catalog.json') === 'catalog.csv' && csvPath('/tmp/x.json') === '/tmp/x.csv' && csvPath('out') === 'out.csv',
     'csv: the csv sits beside whatever --out named');
 
+  // getUntilDate(): the backfill must stop reading at the date, not download the
+  // whole page. The stub answers like a concept page -- the ISO field early,
+  // then megabytes of markup after it.
+  const { getUntilDate } = require('./catalog.js');
+  const FILLER = 'x'.repeat(64 * 1024);
+  const dsrv = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    if (req.url === '/nodate') {          // no ISO field: spec table is the fallback
+      res.end('<p>Release Date</p><p>10/2/2025</p>' + FILLER);
+      return;
+    }
+    res.write('<html>' + 'a'.repeat(4096) + '"releaseDate":"2025-10-02T04:00:00Z"');
+    let sent = 0;
+    const pump = () => {
+      if (res.writableEnded || res.destroyed) return;
+      if (sent++ > 48) return res.end();   // ~3 MB if nobody hangs up
+      res.write(FILLER, pump);
+    };
+    pump();
+  });
+  await new Promise(r => dsrv.listen(0, r));
+  const durl = 'http://localhost:' + dsrv.address().port;
+
+  const early = await getUntilDate(durl + '/game');
+  check(early.date === '2025-10-02' && early.text === null,
+    'getUntilDate: reads the ISO date off the stream', '-> ' + early.date);
+  check(early.bytes < 512 * 1024,
+    'getUntilDate: hangs up early instead of downloading the whole page',
+    '-> ' + Math.round(early.bytes / 1024) + ' kB of ~3 MB');
+
+  const late = await getUntilDate(durl + '/nodate');
+  check(late.date === null && late.text !== null && releaseDate(late.text, 'en-us') === '2025-10-02',
+    'getUntilDate: returns the whole page when the ISO field never appears, so the spec table still parses');
+
+  const gone = await getUntilDate(durl.replace(/:\d+$/, ':1') + '/game');
+  check(gone.date === null && gone.text === null && gone.bytes === 0,
+    'getUntilDate: an unreachable page yields nothing rather than throwing');
+
+  dsrv.close();
+
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
 })();

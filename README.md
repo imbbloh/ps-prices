@@ -150,11 +150,18 @@ all it still shows every store's local price rather than an empty table.
     `--all` still matters: it catches back-catalogue titles added to the store long after their
     release, which a last-30-days filter cannot see.
 
-  **Release dates** are not on the grid query, but every concept page carries one as an ISO
-  timestamp (`"releaseDate":"2025-10-02T04:00:00Z"`), so `node catalog.js --dates` fills them in
-  — one fetch per game, ~2.6 GB gzipped and about half an hour at `--pool 4`, needed once. Only
-  rows without a date are touched, so it resumes after an interruption and `--limit` chunks it;
-  the workflow runs 2,000 a day. Being ISO, the storefront's date format never enters into it.
+  **Release dates** are not on the grid query, and no GraphQL operation a concept page issues
+  carries one either — all seven were replayed and none returned a date, so there is nothing to
+  batch. Every concept page does carry one as an ISO timestamp
+  (`"releaseDate":"2025-10-02T04:00:00Z"`), so `node catalog.js --dates` fills them in, one page
+  per game. What makes that cheap is not reading the page: the field sits near the top of the
+  server-rendered payload, so the fetch streams the body and hangs up the moment it matches —
+  tens of kB instead of the ~1.2 MB document, roughly a 20× cut in bytes. There is no sleep
+  between fetches either (that 400 ms is politeness towards the GraphQL API, not the CDN), the
+  pool defaults to 8, and progress is checkpointed every 500 pages so a run cut short keeps what
+  it found. `--date-delay` puts a pause back if the store ever pushes back. Only rows without a
+  date are touched, so it resumes after an interruption and `--limit` chunks it; the workflow
+  runs 8,000 a day. Being ISO, the storefront's date format never enters into it.
   `firstSeen` still records when this tool first saw a game, which is a different thing from when
   the game came out. Prices are
   deliberately not stored: they change constantly and would rewrite every row daily, burying the
