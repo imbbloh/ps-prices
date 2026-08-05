@@ -666,6 +666,69 @@ async function region(pid, cid, loc, title) {
            screenLanguages: null, voiceLanguages: null, editions: [], via: null, productId: null, url: null };
 }
 
+// Cross-region reconciliation: the twenty regions are twenty independent reads
+// of the same game, so they can check each other without knowing a word of any
+// storefront's language.
+//
+// Absolute prices cannot be compared -- India and Turkey are legitimately a
+// fraction of the US -- and converting through FX would only move the problem.
+// What does compare is the shape of each region's own edition list: the ratio
+// of the chosen price to the most expensive edition on the same page. That
+// ratio is FX-free and regional-pricing-free, because both terms come from the
+// same storefront in the same currency. Every region should agree on it: the
+// standard edition is ~0.86 of the deluxe everywhere. A region that picked up
+// something that is not an edition at all lands far below that consensus.
+//
+// This is what catches a stray entry in a storefront nobody has dumped -- the
+// Japanese ¥2,200 sat at 0.25 while every other region agreed on ~0.86.
+//
+// Two guards keep it from inventing wrong answers:
+//   * A discounted pick is never adjusted. A region-only sale is a real reason
+//     to sit below consensus, and the strikethrough says so.
+//   * A replacement must already exist in that region's own edition list. This
+//     only ever re-picks among prices the page actually published.
+const MIN_AGREE = 4;      // regions needed before a consensus means anything
+const OUTLIER   = 0.6;    // below this share of the consensus ratio, distrust the pick
+
+function ratio(r) {
+  const top = r.editions && r.editions.length ? r.editions[r.editions.length - 1].price : null;
+  return top > 0 && r.price > 0 ? r.price / top : null;
+}
+
+function median(xs) {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? s[Math.floor(s.length / 2)] : null;
+}
+
+function reconcile(results) {
+  const rs = results.map(ratio).filter(x => x != null);
+  if (rs.length < MIN_AGREE) return results;
+  const consensus = median(rs);
+  if (!consensus) return results;
+
+  return results.map(r => {
+    const own = ratio(r);
+    if (own == null || own >= consensus * OUTLIER) return r;
+    if (r.original != null) return r;              // a sale explains itself
+    const top = r.editions[r.editions.length - 1].price;
+    // The published edition whose share of the top price is closest to what
+    // every other region agrees on.
+    const best = r.editions
+      .filter(e => e.price > 0)
+      .reduce((a, b) => Math.abs(b.price / top - consensus) < Math.abs(a.price / top - consensus) ? b : a);
+    if (best.price === r.price) return r;
+    return {
+      ...r,
+      price: best.price,
+      original: best.original || null,
+      discount: best.discount || null,
+      editions: r.editions.filter(e => e.price >= best.price),
+      suspect: false,
+      adjusted: true            // re-picked against the other regions, not as read
+    };
+  });
+}
+
 async function lookup(query) {
   const started = Date.now();
   const q = parseQuery(query);
@@ -736,6 +799,8 @@ async function lookup(query) {
     };
   });
 
+  const reconciled = reconcile(results);
+
   // The page's own name can be an edition ("... Deluxe Edition"); the catalogue
   // knows the concept's name, which is what was actually asked for.
   const catName = cid && CATALOG && CATALOG.names && CATALOG.names.get(String(cid));
@@ -745,10 +810,11 @@ async function lookup(query) {
     productId: pid,
     conceptId: cid || null,
     resolvedBy,                    // 'catalog' | 'search' | 'conceptId' | 'productId'
-    priced: results.filter(r => r.price != null).length,
+    priced: reconciled.filter(r => r.price != null).length,
     total: results.length,
     elapsedMs: Date.now() - started,
-    results
+    priceAdjusted: reconciled.filter(r => r.adjusted).length,
+    results: reconciled
   };
 }
 
@@ -820,6 +886,6 @@ module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
   keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, priceBlocks, cheapest,
-  releaseDate, parseDate, isoReleaseDate,
+  releaseDate, parseDate, isoReleaseDate, reconcile,
   LOCALES, EXPECT, ALSO_OK, BASE
 };

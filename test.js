@@ -8,7 +8,7 @@ process.env.PS_BASE = 'http://localhost:' + PORT;
 
 const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
         isAccepted, isForeign, region, languages, keyName, loadCatalog,
-        releaseDate, parseDate } = require('./server.js');
+        releaseDate, parseDate, reconcile } = require('./server.js');
 const http = require('http');
 
 let fails = 0;
@@ -735,6 +735,47 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   // silently priceless.
   const allBare = grab('<html>' + jpEntry('¥7,590', 'OTHER', { bare: true }));
   check(allBare.price === 7590, 'a page of only bare entries still yields a price');
+
+  // reconcile(): the regions check each other, with no storefront wording involved.
+  const reg = (region, price, eds, extra = {}) => ({
+    region, price, editions: eds.map(p => ({ price: p, original: null, discount: null }), []), ...extra
+  });
+  const normal = () => [
+    reg('US', 59.99, [59.99, 69.99]), reg('SG', 79, [79, 92]),
+    reg('IN', 4499, [4499, 5299]),    reg('TR', 1799, [1799, 2099]),
+    reg('GB', 54.99, [54.99, 64.99])
+  ];
+
+  const strayJp = [...normal(), reg('JP', 2200, [2200, 7590, 8690])];
+  const fixed = reconcile(strayJp).find(r => r.region === 'JP');
+  check(fixed.price === 7590 && fixed.adjusted === true,
+    'reconcile: a stray entry no other region has is re-picked from that page',
+    '-> ' + fixed.price);
+  check(JSON.stringify(fixed.editions.map(e => e.price)) === '[7590,8690]',
+    'reconcile: the stray is dropped from the editions too');
+  check(reconcile(strayJp).filter(r => r.adjusted).length === 1,
+    'reconcile: only the odd region is touched');
+
+  // India is legitimately a fraction of the US -- absolute prices must not matter.
+  check(reconcile(normal()).every(r => !r.adjusted),
+    'reconcile: cheap regions are left alone, since only intra-region ratios are compared');
+
+  // A region-only sale explains its own low ratio and must survive untouched.
+  const onSale = [...normal(),
+    { ...reg('JP', 2200, [2200, 8690]), original: 8690, discount: '-75%' }];
+  const kept = reconcile(onSale).find(r => r.region === 'JP');
+  check(kept.price === 2200 && !kept.adjusted,
+    'reconcile: a discounted price is never overridden', '-> ' + kept.price);
+
+  // Too few regions to agree on anything: change nothing.
+  check(reconcile([reg('US', 59.99, [59.99, 69.99]), reg('JP', 2200, [2200, 8690])])
+          .every(r => !r.adjusted),
+    'reconcile: no consensus, no adjustment');
+
+  // Regions with no price or a single edition contribute nothing and are safe.
+  check(reconcile([...normal(), reg('DE', null, []), reg('BR', 199, [199])])
+          .every(r => !r.adjusted),
+    'reconcile: unpriced and single-edition regions are left as they are');
 
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);

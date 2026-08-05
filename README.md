@@ -116,6 +116,25 @@ all it still shows every store's local price rather than an empty table.
   vocabulary check — `OTHER` is too vague to blanket-exclude, and the classification list has
   surprised us four times already.
 
+- **The regions check each other.** Every rule above is structural, but a storefront nobody has
+  looked at can still publish a shape nobody has seen. So after all twenty regions resolve, they
+  are reconciled against each other — twenty independent reads of the same game.
+
+  Absolute prices cannot be compared (India and Turkey are legitimately a fraction of the US, and
+  converting through FX only moves the problem). What compares is the shape of each region's own
+  edition list: **the ratio of the chosen price to the top edition on the same page**. Both terms
+  come from one storefront in one currency, so the ratio is free of FX and of regional pricing,
+  and every region should agree on it — a standard edition is ~0.86 of the deluxe everywhere. A
+  region that picked up something that is not an edition lands far below that: the Japanese
+  ¥2,200 sat at 0.25 while every other region agreed on ~0.86.
+
+  Such a region is re-picked from its own published editions, and the response reports
+  `adjusted: true` for it and `priceAdjusted` overall. Two guards stop it inventing answers: a
+  **discounted** pick is never overridden (a region-only sale is a real reason to sit low, and the
+  strikethrough says so), and a replacement must already exist in that region's edition list — it
+  only ever re-picks among prices the page actually published. Fewer than four regions with
+  editions means no consensus and no adjustment.
+
 - **Finding new store classifications:** `node catalog.js --classes` samples concept pages from
   `catalog.json` and reports any `storeDisplayClassification` the extractor does not know. The
   matching **fails open** — an unrecognised label counts as a game, and being cheap it wins, which
