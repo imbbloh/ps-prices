@@ -118,24 +118,23 @@ Results are the **top 5 regions**, cheapest first, two lines each:
 ```
 🎮 Ghost of Yōtei
 
-S$47.28  ·  1. 🇺🇦 Ukraine
+1.  S$47.28  ·  🇺🇦 Ukraine
     UAH 1,649  ·  U̶A̶H̶ ̶2̶,̶1̶9̶9̶
-S$50.48  ·  2. 🇮🇳 India
+2.  S$50.48  ·  🇮🇳 India
     ₹3,749  ·  ₹̶4̶,̶9̶9̶9̶
-S$50.99  ·  3. 🇰🇷 South Korea
+3.  S$50.99  ·  🇰🇷 South Korea
     ₩56,658  ·  ₩̶7̶9̶,̶8̶0̶0̶  ·  no English
 
 20 of 20 regions priced · showing 5
         [ 🇸🇬 S$69.50 ]  [ Show More ]
 ```
 
-**The converted price leads each row, and the rank follows it.** With the price first, every
-row's figure starts at the same x and the column reads straight down the message — it could not
-while anything of varying length came first, and Telegram offers no alignment to fix that with,
-only a monospace span that costs the links and the strikethrough. Putting the rank *after* the
-price is what keeps the column straight once the expanded view reaches double figures, where
-`10.` is wider than `9.`. Both prices link to the page they came from, so whichever number the
-eye lands on can be tapped.
+**Rank first, then the converted price**, which still lines up down the message because the rank
+is padded to a fixed width. Telegram has no text alignment and its font is proportional, so
+ordinary spaces would not hold a column — but `U+2007 FIGURE SPACE` is defined to be exactly as
+wide as a digit, which is what it exists for. Without it the expanded list breaks its own column
+at row ten, where `10.` is wider than `9.`. Both prices link to the page they came from, so
+whichever number the eye lands on can be tapped.
 
 **Only the absence of English is marked.** A tick on nineteen rows out of twenty is noise; the
 one row where the game is not playable in a language you read is the whole point. Unknown stays

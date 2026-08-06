@@ -193,13 +193,14 @@ function homeButton(pr, target, rates) {
   };
 }
 
-// Two lines per region, and the converted price leads: with the price first,
-// every row's figure starts at the same x and the column reads down the message.
-// It could not while anything of varying length came first, and Telegram offers
-// no alignment to fix that with -- only a monospace span, which costs the links
-// and the strikethrough. The rank follows the price rather than opening the row,
-// which is what keeps the column straight when the ranking reaches double
-// figures in the expanded view.
+// Two lines per region: rank and price, then the store's own price underneath.
+//
+// The rank opens the row, and the converted prices still line up beneath each
+// other, because the rank is padded to a fixed width. Telegram has no text
+// alignment and its font is proportional, so ordinary spaces would not do it --
+// but U+2007 FIGURE SPACE is defined to be exactly as wide as a digit, which is
+// what it exists for. Without that padding the expanded list breaks its own
+// column at row ten, where "10." is wider than "9.".
 //
 // Both prices link to the same page, so whichever number the eye lands on is
 // the one that can be tapped.
@@ -209,11 +210,19 @@ function homeButton(pr, target, rates) {
 // the whole point. Unknown stays blank -- the extractor reports null when a
 // storefront's spec table could not be read, and a blank is honest where "no
 // English" would be a guess.
-function line(x, target, i) {
+const FIGURE_SPACE = '\u2007';
+
+function rankLabel(i, total) {
+  const n = String(i + 1);
+  return FIGURE_SPACE.repeat(Math.max(0, String(total).length - n.length)) + n + '.';
+}
+
+function line(x, target, i, total) {
   const place = REGION_NAMES[x.region] || x.region;
   const link = t => x.url ? '<a href="' + esc(x.url) + '">' + esc(t) + '</a>' : esc(t);
-  const head = '<b>' + (x.conv != null ? link(converted(target, x.conv)) : '—') +
-               '</b>  ·  ' + (i + 1) + '. ' + flag(x.region) + ' <b>' + esc(place) + '</b>';
+  const head = '<b>' + rankLabel(i, total) + '  ' +
+               (x.conv != null ? link(converted(target, x.conv)) : '—') +
+               '</b>  ·  ' + flag(x.region) + ' <b>' + esc(place) + '</b>';
 
   const bits = [link(money(x.currency, x.price))];
   // The struck-through old price says "on sale" on its own; the percentage
@@ -229,7 +238,7 @@ function formatPrices(pr, target, rates, limit) {
     return { text: '<b>' + esc(pr.title) + '</b>\nNo region has a price for this one.', rows: 0 };
   }
   const shown = rows.slice(0, limit);
-  const body = shown.map((x, i) => line(x, target, i)).join('\n');
+  const body = shown.map((x, i) => line(x, target, i, shown.length)).join('\n');
   // No subtitle when the rates are fine: the prices are already in order and
   // each one carries its own currency symbol, so the line only restated what
   // the list shows. It stays for the one case that is not self-evident.
@@ -457,5 +466,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, rankLabel, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
 };

@@ -983,15 +983,24 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(!shown5.text.includes('🇹🇷'), 'bot: the redirected region is absent from the message');
   check(shown5.text.includes('India') && shown5.text.includes('United States'),
     'bot: rows name the country, not just its code');
-  const plainRows = shown5.text.replace(/<[^>]+>/g, '').split('\n').filter(l => /^S\$/.test(l));
-  check(plainRows.length === 2,
-    'bot: every row opens with the converted price, so the column lines up',
+  const plainRows = shown5.text.replace(/<[^>]+>/g, '').split('\n').filter(l => /^[\d\u2007]+\./.test(l));
+  check(plainRows.length === 2, 'bot: one ranked row per region',
     '-> ' + JSON.stringify(plainRows));
-  check(/^S\$48\.78\s+·\s+1\. 🇮🇳 India$/.test(plainRows[0]),
-    'bot: price, then rank, then flag and country', '-> ' + plainRows[0]);
-  check(/^S\$\d/.test(plainRows[1]),
-    'bot: the rank follows the price rather than opening the row, so the column stays straight',
-    '-> ' + plainRows[1]);
+  check(/^1\.\s+S\$48\.78\s+·\s+🇮🇳 India$/.test(plainRows[0]),
+    'bot: rank first, then the converted price, then flag and country', '-> ' + plainRows[0]);
+
+  // The prices must still line up beneath each other once the ranking reaches
+  // double figures, which ordinary spaces cannot do in a proportional font.
+  check(bot.rankLabel(0, 5) === '1.' && bot.rankLabel(0, 20) === '\u20071.' &&
+        bot.rankLabel(9, 20) === '10.',
+    'bot: single-digit ranks are padded with a figure space when the list runs past nine',
+    '-> ' + JSON.stringify(bot.rankLabel(0, 20)));
+  const wide = bot.formatPrices({ ...sample, results: Array.from({ length: 11 }, (_, k) => ({
+    ...sample.results[0], region: 'US', price: 10 + k })) }, 'SGD', rates, 20)
+    .text.replace(/<[^>]+>/g, '').split('\n').filter(l => /^[\d\u2007]+\./.test(l));
+  check(new Set(wide.map(l => l.indexOf('US$'))).size === 1,
+    'bot: so every converted price starts at the same offset, rows 1 through 11',
+    '-> ' + JSON.stringify([...new Set(wide.map(l => l.indexOf('US$')))]));
   check(shown5.text.split('\n').filter(l => l.trim()).length === 1 + 2 * 2 + 1,
     'bot: two lines per region, plus a title and a footer');
   check(!/Cheapest first/.test(shown5.text),
