@@ -1001,6 +1001,46 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(/local prices only/i.test(noFx.text),
     'bot: without rates the local prices still show, as on the website');
 
+  // The home price: the reference every other row is read against, and usually
+  // nowhere near the top five.
+  check(bot.homeRegion('SGD') === 'SG' && bot.homeRegion('EUR') === 'DE' &&
+        bot.homeRegion('USD') === 'US',
+    'bot: the home store follows the currency being converted into');
+  check(bot.homeRegion('XXX') === null, 'bot: an unknown currency has no home store');
+
+  const withHome = {
+    ...sample,
+    results: [...sample.results,
+      { region: 'SG', currency: 'SGD', price: 98.9, original: null, discount: null,
+        editions: [], url: 'https://store/sg', redirected: false, english: true }]
+  };
+  const homed = bot.formatPrices(withHome, 'SGD', rates, 5).text.replace(/<[^>]+>/g, '');
+  check(/🏠 🇸🇬 Singapore\s+·\s+S\$98\.90/.test(homed),
+    'bot: the home price is shown even when it is not among the cheapest',
+    '-> ' + (homed.split('\n')[3] || ''));
+  check(/save S\$5[0-9.]+ \(5[0-9]%\) in India/.test(homed),
+    'bot: the saving is stated against the cheapest region, in one currency',
+    '-> ' + (homed.split('\n')[3] || ''));
+  check(homed.indexOf('🏠') < homed.indexOf('1.'),
+    'bot: the reference sits above the list, not buried in it');
+
+  // A home region that is itself the cheapest must not claim a saving.
+  const cheapHome = {
+    ...sample,
+    results: [{ region: 'SG', currency: 'SGD', price: 9.9, original: null, discount: null,
+                editions: [], url: 'https://store/sg', redirected: false, english: true },
+              ...sample.results]
+  };
+  const ch = bot.formatPrices(cheapHome, 'SGD', rates, 5).text.replace(/<[^>]+>/g, '');
+  check(/🏠 🇸🇬 Singapore/.test(ch) && !/save/.test(ch),
+    'bot: no saving is claimed when home is already cheapest');
+
+  // No price at home, and no rates at all: neither may break the message.
+  check(!/🏠/.test(bot.formatPrices(sample, 'SGD', rates, 5).text),
+    'bot: an unpriced home region is simply absent');
+  check(bot.formatPrices(withHome, 'SGD', null, 5).text.includes('🏠'),
+    'bot: without rates the home price still shows, in its own currency');
+
   // /start and /cur need no network at all.
   calls.length = 0;
   await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/start' } });

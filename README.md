@@ -119,11 +119,19 @@ Results are the **top 5 regions**, cheapest first, two lines each:
 🎮 Ghost of Yōtei
 Cheapest first, converted to SGD
 
+🏠 🇸🇬 Singapore  ·  S$98.90  · save S$51.63 (52%) in Ukraine
+
 1. 🇺🇦 Ukraine  ·  S$47.27
     UAH 1,649  ·  UAH 2,199  ·  -25%  ·  2 editions
 2. 🇮🇳 India  ·  S$50.38
     ₹3,749  ·  ₹4,999  ·  -25%  ·  2 editions
 ```
+
+The **home price comes first**, worked out from the currency being converted into (SGD → SG,
+EUR → DE). A list of cheap regions means nothing without knowing what the game costs at home,
+and the home store is usually nowhere near the top five, so it sits above the list with the
+saving against the cheapest region stated in one currency. If home is already cheapest it says
+so rather than inventing a saving.
 
 The converted price closes the first line, since that is the number being compared; the store's
 own price sits underneath with its strikethrough, discount and edition count, and links to the

@@ -189,6 +189,34 @@ function line(x, target, i) {
   return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
 }
 
+// The home store, worked out from the currency being converted into: SGD -> SG,
+// EUR -> DE. Its price is the one worth comparing everything against -- a list
+// of cheap regions means nothing without knowing what the game costs at home --
+// and it is usually nowhere near the top five.
+function homeRegion(target) {
+  const S_ = require('./server.js');
+  return Object.keys(S_.EXPECT).find(r => S_.EXPECT[r] === target) || null;
+}
+
+function homeLine(pr, target, rates, cheapest) {
+  const home = homeRegion(target);
+  if (!home) return null;
+  const row = pr.results.find(x => x.region === home && x.price != null);
+  if (!row) return null;
+  const conv = convert(row.price, row.currency, target, rates);
+  const at = '🏠 ' + flag(home) + ' ' + esc(REGION_NAMES[home] || home) + '  ·  ' +
+             esc(conv != null ? converted(target, conv) : money(row.currency, row.price));
+  // Same currency for both, so the saving is a subtraction rather than a claim.
+  if (conv == null || !cheapest || cheapest.conv == null || cheapest.region === home) {
+    return '<b>' + at + '</b>';
+  }
+  const save = conv - cheapest.conv;
+  if (save <= 0) return '<b>' + at + '</b>  <i>already the cheapest</i>';
+  return '<b>' + at + '</b>  <i>· save ' + esc(converted(target, save)) +
+         ' (' + Math.round(save / conv * 100) + '%) in ' +
+         esc(REGION_NAMES[cheapest.region] || cheapest.region) + '</i>';
+}
+
 function formatPrices(pr, target, rates, limit) {
   const rows = rankRows(pr.results, target, rates);
   if (!rows.length) {
@@ -199,13 +227,16 @@ function formatPrices(pr, target, rates, limit) {
   const head = '🎮 <b>' + esc(pr.title) + '</b>\n<i>' +
     esc(rates ? 'Cheapest first, converted to ' + target
               : 'Local prices only — no live exchange rates') + '</i>';
+  // The home price goes above the list, not buried in it: it is the reference
+  // every other number is being read against.
+  const home = homeLine(pr, target, rates, rows[0]);
   const foot = [
     pr.priced + ' of ' + pr.total + ' regions priced',
     shown.length < rows.length ? 'showing ' + shown.length : null,
     pr.priceAdjusted ? pr.priceAdjusted + ' re-checked against other regions' : null
   ].filter(Boolean).join(' · ');
   return {
-    text: head + '\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',
+    text: head + (home ? '\n\n' + home : '') + '\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',
     rows: rows.length
   };
 }
@@ -411,5 +442,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, homeLine, homeRegion, remember, recent, target, tg, hasToken: () => !!TOKEN
 };
