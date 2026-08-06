@@ -170,58 +170,51 @@ function rankRows(results, target, rates) {
     .sort((a, b) => (a.conv == null) - (b.conv == null) || (a.conv - b.conv));
 }
 
-// Two lines per region rather than one long one. Everything used to run
-// together on a single row that wrapped mid-price on a phone; splitting it puts
-// the number being compared -- the converted price -- at the end of a short
-// first line, and the store's own price with its discount underneath.
-// Telegram has no text alignment. The only fixed-width context it offers is a
-// code span, so flushing anything right means rendering that whole line as one
-// -- which rules out a link or a strikethrough inside it, since Telegram allows
-// no nesting there. Hence the link moves up to the country name on the first
-// line, where it stays clickable, and the old price is prefixed "was" instead
-// of being struck through.
-const DETAIL_W = 34;                   // fits a phone's monospace width without wrapping
-
-function line(x, target, i) {
-  const place = REGION_NAMES[x.region] || x.region;
-  const conv = x.conv != null ? converted(target, x.conv) : '—';
-  const name = x.url ? '<a href="' + esc(x.url) + '">' + esc(place) + '</a>' : esc(place);
-  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + name +
-               '  ·  ' + esc(conv) + '</b>';
-
-  const left = [money(x.currency, x.price)];
-  if (x.original != null) left.push('was ' + money(x.currency, x.original));
-  if (x.english === false) left.push('no English');
-  const right = x.editions && x.editions.length > 1 ? x.editions.length + ' editions' : '';
-
-  let detail = left.join('  ');
-  // Pad to the column when it fits; when it does not, one space, because a
-  // wrapped line is worse than an unaligned one.
-  if (right) detail += ' '.repeat(Math.max(1, DETAIL_W - detail.length - right.length)) + right;
-  return head + '\n<code>' + esc(detail) + '</code>';
-}
-
 // The home store, worked out from the currency being converted into: SGD -> SG,
-// EUR -> DE. Its price is the one worth comparing everything against -- a list
-// of cheap regions means nothing without knowing what the game costs at home --
-// and it is usually nowhere near the top five.
+// EUR -> DE. A list of cheap regions means nothing without knowing what the game
+// costs at home, and the home store is usually nowhere near the top five. The
+// price alone -- the list underneath already shows what the cheapest region
+// costs, so spelling out the difference is arithmetic the reader can see.
 function homeRegion(target) {
-  const S_ = require('./server.js');
-  return Object.keys(S_.EXPECT).find(r => S_.EXPECT[r] === target) || null;
+  return Object.keys(S.EXPECT).find(r => S.EXPECT[r] === target) || null;
 }
 
-function homeLine(pr, target, rates, cheapest) {
+function homeLine(pr, target, rates) {
   const home = homeRegion(target);
   if (!home) return null;
   const row = pr.results.find(x => x.region === home && x.price != null);
   if (!row) return null;
   const conv = convert(row.price, row.currency, target, rates);
-  // The price alone: the list underneath already shows what the cheapest region
-  // costs, so spelling out the difference was arithmetic the reader can see.
-  const link = row.url ? '<a href="' + esc(row.url) + '">' + esc(REGION_NAMES[home] || home) + '</a>'
-                       : esc(REGION_NAMES[home] || home);
+  const place = REGION_NAMES[home] || home;
+  const link = row.url ? '<a href="' + esc(row.url) + '">' + esc(place) + '</a>' : esc(place);
   return '<b>🏠 ' + flag(home) + ' ' + link + '  ·  ' +
          esc(conv != null ? converted(target, conv) : money(row.currency, row.price)) + '</b>';
+}
+
+// Two lines per region rather than one long one. Everything used to run
+// together on a single row that wrapped mid-price on a phone; splitting it puts
+// the number being compared -- the converted price -- at the end of a short
+// first line, and the store's own price underneath.
+//
+// The edition count is not flushed right, and cannot be. Telegram has no text
+// alignment, so a fixed column means rendering the line as a code span -- and
+// Telegram allows no nesting inside one, which costs both the link and the
+// strikethrough. The strikethrough is worth more than the alignment: it says
+// "on sale" at a glance, where a right-hand column only looks tidier.
+function line(x, target, i) {
+  const place = REGION_NAMES[x.region] || x.region;
+  const conv = x.conv != null ? converted(target, x.conv) : '—';
+  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + esc(place) +
+               '  ·  ' + esc(conv) + '</b>';
+
+  const local = money(x.currency, x.price);
+  const bits = [x.url ? '<a href="' + esc(x.url) + '">' + esc(local) + '</a>' : esc(local)];
+  // The struck-through old price says "on sale" on its own; the percentage
+  // beside it was a third number on a line that already had two.
+  if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
+  if (x.editions && x.editions.length > 1) bits.push(x.editions.length + ' editions');
+  if (x.english === false) bits.push('no English');
+  return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
 }
 
 function formatPrices(pr, target, rates, limit) {
@@ -236,7 +229,7 @@ function formatPrices(pr, target, rates, limit) {
               : 'Local prices only — no live exchange rates') + '</i>';
   // The home price goes above the list, not buried in it: it is the reference
   // every other number is being read against.
-  const home = homeLine(pr, target, rates, rows[0]);
+  const home = homeLine(pr, target, rates);
   const foot = [
     pr.priced + ' of ' + pr.total + ' regions priced',
     shown.length < rows.length ? 'showing ' + shown.length : null,

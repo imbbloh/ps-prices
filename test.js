@@ -968,12 +968,12 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     '-> ' + ranked.map(r => r.region).join(','));
 
   const shown5 = bot.formatPrices(sample, 'SGD', rates, 5);
-  check(shown5.text.includes('🇮🇳') && shown5.text.includes('was ₹4,499'),
-    'bot: a discounted row shows what the price was');
+  check(shown5.text.includes('🇮🇳') && shown5.text.includes('<s>₹4,499</s>'),
+    'bot: a discounted row shows the old price struck through');
   check(!shown5.text.includes('-33%'),
-    'bot: and not the percentage as well, which "was" already says');
-  check(/<a href="https:\/\/store\/in">India<\/a>/.test(shown5.text),
-    'bot: the country name links to the store page it came from');
+    'bot: and not the percentage as well, which the strikethrough already says');
+  check(/<a href="https:\/\/store\/in">₹2,999<\/a>/.test(shown5.text),
+    'bot: the price links to the store page it came from');
   check(shown5.text.includes('2 editions'), 'bot: extra editions are noted');
   check(!shown5.text.includes('🇹🇷'), 'bot: the redirected region is absent from the message');
   check(shown5.text.includes('India') && shown5.text.includes('United States'),
@@ -984,23 +984,11 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(shown5.text.split('\n').filter(l => l.trim()).length === 2 + 2 * 2 + 1,
     'bot: two lines per region, plus a header and a footer');
 
-  // Right alignment needs a fixed-width context, and a code span is the only
-  // one Telegram has. The column has to hold without wrapping on a phone.
+  // Alignment was tried and reverted: a flushed column needs a code span, and
+  // Telegram allows no nesting inside one, which costs the strikethrough.
   const detail = shown5.text.split('\n').find(l => l.includes('editions'));
-  check(/<code>.*<\/code>/.test(detail),
-    'bot: the detail line is monospace, which is what makes a flushed column possible');
-  const plain = detail.replace(/<[^>]+>/g, '');
-  check(plain.endsWith('2 editions') && /\s{2,}2 editions$/.test(plain),
-    'bot: the edition count is flushed to the right of that column', '-> ' + JSON.stringify(plain));
-  check(plain.length <= 36,
-    'bot: and the column stays narrow enough not to wrap', '-> ' + plain.length + ' chars');
-
-  // A detail line too long for the column keeps one space rather than wrapping.
-  const longRow = { ...sample, results: [{ ...sample.results[1], currency: 'IDR', price: 1234567, original: 2345678 }] };
-  const longPlain = bot.formatPrices(longRow, 'SGD', { ...rates, IDR: 16000 }, 5)
-    .text.split('\n').find(l => l.includes('was')).replace(/<[^>]+>/g, '');
-  check(!/  $/.test(longPlain) && longPlain.includes('was'),
-    'bot: an over-long detail line is left unpadded rather than wrapped');
+  check(!/<code>/.test(detail) && /<s>/.test(shown5.text),
+    'bot: detail lines keep their markup rather than becoming a monospace column');
 
   // The narrow symbol for SGD is a bare "$", which is the ambiguity the whole
   // column exists to resolve.

@@ -122,9 +122,9 @@ Cheapest first, converted to SGD
 🏠 🇸🇬 Singapore  ·  S$69.50
 
 1. 🇺🇦 Ukraine  ·  S$47.27
-UAH 1,649  was UAH 2,199 2 editions
+    UAH 1,649  ·  U̶A̶H̶ ̶2̶,̶1̶9̶9̶  ·  2 editions
 2. 🇮🇳 India  ·  S$50.38
-₹3,749  was ₹4,999      2 editions
+    ₹3,749  ·  ₹̶4̶,̶9̶9̶9̶  ·  2 editions
 ```
 
 The **home price comes first**, worked out from the currency being converted into (SGD → SG,
@@ -132,15 +132,15 @@ EUR → DE). A list of cheap regions means nothing without knowing what the game
 and the home store is usually nowhere near the top five. It is the price alone — the list below
 already shows what the cheapest region costs.
 
-The converted price closes the first line, since that is the number being compared, and the
-country name links to the store page. The store's own price sits underneath in a monospace span
-with the edition count flushed right.
+The converted price closes the first line, since that is the number being compared; the store's
+own price sits underneath, struck through when on sale, and links to the page it came from. The
+discount percentage is deliberately absent — the strikethrough already says the game is on sale,
+and it was a third number on a line that had two.
 
-That monospace span is a constraint, not a preference: **Telegram has no text alignment**, and a
-code span is the only fixed-width context it offers. Telegram also allows no nesting inside one,
-so the link moved up to the country name and the old price is prefixed `was` rather than struck
-through. The column is 34 characters, which holds without wrapping on a phone; a detail line too
-long for it keeps a single space instead, since a wrapped line is worse than an unaligned one. Countries are named rather than coded. Local prices print the disambiguated
+The edition count is **not** flushed right, and cannot be. Telegram has no text alignment, so a
+fixed column means rendering the line as a code span — and Telegram allows no nesting inside one,
+which costs both the link and the strikethrough. The strikethrough is worth more than the
+alignment: it says "on sale" at a glance, where a right-hand column only looks tidier. Countries are named rather than coded. Local prices print the disambiguated
 symbol — `NT$`, `UAH` — because twenty storefronts put several different dollars next to each
 other, while the converted column uses a compact unambiguous form (`S$`, `US$`) since the header
 already names the currency. A **Show all 20 regions** button expands the list, replaying the
