@@ -43,18 +43,30 @@ const CACHE_TTL = 10 * 60 * 1000;    // a "Show more" press long after the fact
 
 // ---------------------------------------------------------------- transport
 
-async function tg(method, body) {
+// Every failure here used to return null silently, which made a broken bot look
+// like an idle one: no reply, no log line, nothing to go on. Telegram explains
+// its refusals in `description`, so say so.
+async function tg(method, body, ms = 20000) {
   if (!TOKEN) return null;
   try {
     const r = await fetch(API + '/bot' + TOKEN + '/' + method, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(20000)
+      signal: AbortSignal.timeout(ms)
     });
     const j = await r.json().catch(() => null);
-    return j && j.ok ? j.result : null;
-  } catch (e) { return null; }
+    if (j && j.ok) return j.result;
+    // 409 means a second instance is polling the same token -- an old Render
+    // deploy still winding down, or a webhook left set. Updates go to whichever
+    // asked last, so this looks exactly like messages being ignored.
+    console.error('telegram: ' + method + ' -> ' +
+      ((j && (j.description || j.error_code)) || 'HTTP ' + r.status));
+    return null;
+  } catch (e) {
+    console.error('telegram: ' + method + ' -> ' + (e.name === 'TimeoutError' ? 'timed out' : e.message));
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------- currency
@@ -310,6 +322,12 @@ async function onInline(q) {
 
 async function handleUpdate(u) {
   try {
+    // One line per update, so a quiet bot can be told apart from a deaf one.
+    const what = u.inline_query ? 'inline ' + JSON.stringify(u.inline_query.query)
+      : u.callback_query ? 'button ' + u.callback_query.data
+      : (u.message && u.message.text) ? 'text ' + JSON.stringify(u.message.text)
+      : Object.keys(u).filter(k => k !== 'update_id').join(',');
+    console.log('telegram: ' + what);
     if (u.inline_query) return await onInline(u.inline_query);
     if (u.callback_query) return await onCallback(u.callback_query);
     const m = u.message || u.edited_message;
@@ -324,13 +342,22 @@ async function handleUpdate(u) {
 
 // Long polling needs no public URL, and the open request keeps the free Render
 // dyno awake -- which also spares the next searcher a cold start.
+const POLL = 25;                       // seconds Telegram holds an empty poll open
+
 async function startPolling() {
   if (!TOKEN) return;
   await tg('deleteWebhook', { drop_pending_updates: false });
   let offset = 0;
+  console.log('telegram: polling');
   for (;;) {
-    const ups = await tg('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query', 'inline_query'] });
-    if (!ups) { await new Promise(r => setTimeout(r, 5000)); continue; }
+    // The abort has to outlast the long poll. It did not -- a 50 s poll under a
+    // 20 s abort was cancelled every single time, so the bot spent its life
+    // restarting the connection and answered only what happened to arrive in
+    // the first few seconds of a window.
+    const ups = await tg('getUpdates',
+      { offset, timeout: POLL, allowed_updates: ['message', 'callback_query', 'inline_query'] },
+      (POLL + 15) * 1000);
+    if (!ups) { await new Promise(r => setTimeout(r, 3000)); continue; }
     for (const u of ups) {
       offset = u.update_id + 1;
       handleUpdate(u);                 // not awaited: a slow lookup must not

@@ -1007,6 +1007,42 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   await bot.handleUpdate({ message: {} });
   check(true, 'bot: an update it does not understand is ignored quietly');
 
+  // Polling: the abort must outlast the long poll, or every connection is
+  // cancelled before Telegram has a chance to answer it.
+  const polls = [];
+  const psrv = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', c => (b += c));
+    req.on('end', () => {
+      const method = req.url.split('/').pop();
+      const body = JSON.parse(b || '{}');
+      if (method === 'getUpdates') {
+        polls.push(body);
+        // Answer like a real long poll would: hold, then return nothing.
+        setTimeout(() => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, result: [] }));
+        }, 300);
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result: true }));
+    });
+  });
+  await new Promise(r => psrv.listen(0, r));
+  process.env.TELEGRAM_API = 'http://localhost:' + psrv.address().port;
+  delete require.cache[require.resolve('./bot.js')];
+  const bot2 = require('./bot.js');
+  bot2.startPolling();
+  await new Promise(r => setTimeout(r, 900));
+  check(polls.length >= 1 && polls[0].timeout > 0 && polls[0].timeout <= 30,
+    'bot: the long poll asks Telegram to hold the connection',
+    '-> timeout=' + (polls[0] || {}).timeout);
+  check(polls[0].allowed_updates.includes('inline_query'),
+    'bot: inline queries are among the updates asked for');
+  psrv.close();
+  delete require.cache[require.resolve('./bot.js')];
+
   tsrv.close();
   setCatalog(null);
 
