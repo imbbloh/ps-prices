@@ -7,6 +7,8 @@
 //   node catalog.js --classes  # sample concept pages, report unknown classifications
 //   node catalog.js --dates    # fill in missing release dates (resumable, checkpointed)
 //   node catalog.js --csv      # rebuild catalog.csv from catalog.json, no network
+//   node catalog.js --rank     # record the store's own popularity order (~5 requests)
+//   node catalog.js --top 10   # print the most popular; add --days 30 for new releases
 //
 // Discovered by watching the browse page's own network calls:
 //   operationName=categoryGridRetrieve
@@ -125,6 +127,7 @@ function save(file, known) {
   const body = rows.map(r => {
     const o = { conceptId: r.conceptId, name: r.name };
     if (r.releaseDate) o.releaseDate = r.releaseDate;
+    if (r.rank) o.rank = r.rank;
     if (r.firstSeen) o.firstSeen = r.firstSeen;
     return '  ' + JSON.stringify(o);
   }).join(',\n');
@@ -139,7 +142,7 @@ const csvPath = file => file.replace(/(\.json)?$/i, '') + '.csv';
 // RFC 4180. Titles routinely carry commas, quotes and colons -- "Marvel's
 // Spider-Man 2", 「EA SPORTS FC 27」 -- so every field is quoted and inner
 // quotes are doubled, which is what Excel, Numbers and Sheets all expect.
-const CSV_COLUMNS = ['conceptId', 'name', 'releaseDate', 'firstSeen', 'url'];
+const CSV_COLUMNS = ['conceptId', 'name', 'releaseDate', 'rank', 'firstSeen', 'url'];
 const csvCell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
 function csvRow(r) {
   return CSV_COLUMNS.map(c => csvCell(
@@ -178,6 +181,55 @@ function nodeDate(c) {
     if (m) return m[1];
   }
   return null;
+}
+
+// Popularity, as far as the API exposes it.
+//
+// The grid's default order is the browse page's own -- unfiltered, offset 0
+// returns Fortnite -- so position in that walk is the store's ranking, not
+// something computed here. It is recorded rather than the whole catalogue
+// ordered by it, because only the first few hundred are meaningful: past that
+// the order is a long tail nobody sorted deliberately.
+//
+// Ranks are cleared before the walk so a game that drops out of the top loses
+// its rank instead of keeping a stale one forever.
+async function rankWalk(known, limit) {
+  for (const r of known.values()) delete r.rank;
+  const today = new Date().toISOString().slice(0, 10);
+  let offset = 0, rank = 0;
+  while (rank < limit) {
+    let g;
+    try { g = await grid(offset, SIZE, []); }
+    catch (e) { console.log('  ranking @' + offset + ': ' + e.message); break; }
+    const items = g.concepts || [];
+    if (!items.length) break;
+    for (const c of items) {
+      if (!c || !c.id || rank >= limit) continue;
+      rank++;
+      const row = known.get(c.id) ||
+        { conceptId: c.id, name: c.name || null, firstSeen: today };
+      row.rank = rank;
+      if (!known.has(c.id)) known.set(c.id, row);
+    }
+    offset += SIZE;
+    if (g.pageInfo && g.pageInfo.isLast) break;
+    await sleep(DELAY);
+  }
+  console.log('  ranked ' + rank + ' games by the store\'s own order');
+  return rank;
+}
+
+// What the ranking is for: the popular list, and the popular-lately list.
+// "Lately" is by release date, so it answers "what is new and doing well"
+// rather than "what was added to the store recently".
+function topGames(rows, limit, days) {
+  const cutoff = days
+    ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
+    : null;
+  return rows
+    .filter(r => r.rank && (!cutoff || (r.releaseDate && r.releaseDate >= cutoff)))
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit);
 }
 
 // Collect every page of one filtered slice, adding anything not already known.
@@ -367,11 +419,29 @@ async function getText(url) {
 }
 
 // Nothing below runs on require, so the pure helpers above can be unit-tested.
-module.exports = { nodeDate, csvRow, csvPath, CSV_COLUMNS, getUntilDate };
+module.exports = { nodeDate, csvRow, csvPath, CSV_COLUMNS, getUntilDate, topGames };
 if (require.main !== module) return;
 
 (async () => {
   if (has('--csv')) return csvOnly(OUT);
+  if (has('--top')) {
+    const rows = [...load(OUT).values()];
+    const n = parseInt(val('--top', '10'), 10) || 10;
+    const days = has('--days') ? parseInt(val('--days', '30'), 10) : 0;
+    const list = topGames(rows, n, days);
+    if (!list.length) return console.log('no ranking yet — run: node catalog.js --rank');
+    console.log(days ? 'Popular, released in the last ' + days + ' days:' : 'Most popular:');
+    list.forEach((r, i) => console.log('  ' + String(i + 1).padStart(3) + '. ' +
+      (r.name || r.conceptId) + (r.releaseDate ? '   ' + r.releaseDate : '')));
+    return;
+  }
+  if (has('--rank')) {
+    const known = load(OUT);
+    if (!known.size) return console.log('no catalogue at ' + OUT);
+    await rankWalk(known, parseInt(val('--rank', '500'), 10) || 500);
+    console.log(save(OUT, known) + ' games -> ' + OUT);
+    return;
+  }
   if (has('--classes')) return classCensus(parseInt(val('--classes-sample', '40'), 10));
   if (has('--dates')) return backfillDates(parseInt(val('--limit', '999999'), 10));
 

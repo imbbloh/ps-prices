@@ -583,15 +583,15 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   // catalog.csv: the same rows as catalog.json, in a form a spreadsheet opens.
   const { csvRow, csvPath, CSV_COLUMNS } = require('./catalog.js');
-  check(CSV_COLUMNS.join(',') === 'conceptId,name,releaseDate,firstSeen,url',
+  check(CSV_COLUMNS.join(',') === 'conceptId,name,releaseDate,rank,firstSeen,url',
     'csv: column order is stable');
-  check(csvRow({ conceptId: '10014719', name: 'Beast of Reincarnation', releaseDate: '2025-10-02', firstSeen: '2026-08-04' })
-      === '"10014719","Beast of Reincarnation","2025-10-02","2026-08-04","https://store.playstation.com/en-us/concept/10014719"',
-    'csv: a plain row carries a working store link');
+  check(csvRow({ conceptId: '10014719', name: 'Beast of Reincarnation', releaseDate: '2025-10-02', rank: 7, firstSeen: '2026-08-04' })
+      === '"10014719","Beast of Reincarnation","2025-10-02","7","2026-08-04","https://store.playstation.com/en-us/concept/10014719"',
+    'csv: a plain row carries its rank and a working store link');
   check(csvRow({ conceptId: '1', name: '"Buy The Game, I Have a Gun" -Sheesh-Man' })
-      === '"1","""Buy The Game, I Have a Gun"" -Sheesh-Man","","","https://store.playstation.com/en-us/concept/1"',
+      === '"1","""Buy The Game, I Have a Gun"" -Sheesh-Man","","","","https://store.playstation.com/en-us/concept/1"',
     'csv: a real title with commas and quotes is escaped RFC 4180 style');
-  check(csvRow({ conceptId: '1', name: null }) === '"1","","","","https://store.playstation.com/en-us/concept/1"',
+  check(csvRow({ conceptId: '1', name: null }) === '"1","","","","","https://store.playstation.com/en-us/concept/1"',
     'csv: a missing field is empty, not the string null');
   check(csvPath('catalog.json') === 'catalog.csv' && csvPath('/tmp/x.json') === '/tmp/x.csv' && csvPath('out') === 'out.csv',
     'csv: the csv sits beside whatever --out named');
@@ -1216,6 +1216,46 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     'bot: inline queries are among the updates asked for');
   psrv.close();
   delete require.cache[require.resolve('./bot.js')];
+
+  // Popularity. The store's own grid order is the ranking; the catalogue just
+  // records the position, and these read it back.
+  const { topGames } = require('./catalog.js');
+  const catRows = [
+    { conceptId: '1', name: 'Fortnite',    rank: 1, releaseDate: '2017-07-25' },
+    { conceptId: '2', name: 'Ghost of Yotei', rank: 2, releaseDate: new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10) },
+    { conceptId: '3', name: 'Old Hit',     rank: 3, releaseDate: '2015-01-01' },
+    { conceptId: '4', name: 'New Indie',   rank: 9, releaseDate: new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10) },
+    { conceptId: '5', name: 'Unranked',              releaseDate: '2026-01-01' }
+  ];
+  check(topGames(catRows, 3, 0).map(r => r.name).join(',') === 'Fortnite,Ghost of Yotei,Old Hit',
+    'top: the most popular, in the store\'s own order',
+    '-> ' + topGames(catRows, 3, 0).map(r => r.name).join(','));
+  check(topGames(catRows, 10, 30).map(r => r.name).join(',') === 'Ghost of Yotei,New Indie',
+    'top: popular lately means recently released, still ranked by popularity',
+    '-> ' + topGames(catRows, 10, 30).map(r => r.name).join(','));
+  check(!topGames(catRows, 10, 0).some(r => r.name === 'Unranked'),
+    'top: an unranked game is not silently ranked last');
+  check(topGames([], 10, 0).length === 0, 'top: no ranking, no list');
+
+  // The bot reads the same rows out of the loaded catalogue.
+  setCatalog(Object.assign(new Map(catRows.map(r => [r.name.toLowerCase(), r.conceptId])),
+    { names: new Map(catRows.map(r => [r.conceptId, r.name])), rows: catRows }));
+  check(bot.topList(2, 0).map(r => r.name).join(',') === 'Fortnite,Ghost of Yotei',
+    'bot: /top reads the ranking straight from memory, with no store request');
+  check(bot.topList(10, 30).map(r => r.name).join(',') === 'Ghost of Yotei,New Indie',
+    'bot: /new is popularity among the last thirty days of releases');
+
+  calls.length = 0;
+  await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/top' } });
+  check(/Most popular/.test(calls[0].body.text) && /Fortnite/.test(calls[0].body.text),
+    'bot: /top answers in one message');
+  check(calls[0].body.reply_markup.inline_keyboard[0][0].callback_data === 'g:1',
+    'bot: and each entry is a button that prices it');
+
+  calls.length = 0;
+  await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/new' } });
+  check(/last 30 days/.test(calls[0].body.text) && !/Fortnite/.test(calls[0].body.text),
+    'bot: /new lists only the recent releases');
 
   tsrv.close();
   setCatalog(null);

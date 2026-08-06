@@ -78,6 +78,13 @@ jobs:
         continue-on-error: true
         run: node catalog.js --classes --classes-sample 40
 
+      # Five requests: the grid's default order is the store's own popularity
+      # ranking, so position in an unfiltered walk is the ranking. Only the first
+      # few hundred are meaningful, and stale ranks are cleared each run.
+      - name: Record the popularity ranking
+        continue-on-error: true
+        run: node catalog.js --rank 500 --out catalog.json
+
       # save() already writes it, but a step that fails partway could leave the
       # two out of step. This re-derives the CSV from the JSON and needs no
       # network, so the pair is always consistent in the commit.

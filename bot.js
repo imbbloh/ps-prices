@@ -328,6 +328,20 @@ function remember(pr) {
 
 // ---------------------------------------------------------------- flows
 
+// The catalogue carries the store's own popularity order for the first few
+// hundred games; everything past that is unranked and stays out of these lists.
+function topList(limit, days) {
+  const cat = S.getCatalog();
+  if (!cat || !cat.rows) return [];
+  const cutoff = days
+    ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
+    : null;
+  return cat.rows
+    .filter(r => r.rank && (!cutoff || (r.releaseDate && r.releaseDate >= cutoff)))
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit);
+}
+
 const HELP = [
   '<b>PlayStation price check</b>',
   '',
@@ -335,6 +349,7 @@ const HELP = [
   '',
   '· Type <code>@BOT ghost of</code> in any chat for a live list of titles.',
   '· A concept ID or a store URL works too.',
+  '· <code>/top</code> — what is popular now.  <code>/new</code> — popular recent releases.',
   '· <code>/cur USD</code> changes the currency I convert into (default SGD).'
 ].join('\n');
 
@@ -375,6 +390,31 @@ async function onText(chatId, text) {
   if (/^\/(start|help)/.test(t)) {
     return tg('sendMessage', { chat_id: chatId, parse_mode: 'HTML', text: HELP });
   }
+  // What is popular now, and what is popular among recent releases. Both read
+  // the catalogue in memory: no store request, so they answer instantly, unlike
+  // a price lookup.
+  if (/^\/(top|new)\b/i.test(t)) {
+    const days = /^\/new/i.test(t) ? 30 : 0;
+    const n = Math.min(parseInt((t.match(/\s(\d+)/) || [])[1], 10) || 10, 25);
+    const list = topList(n, days);
+    if (!list.length) {
+      return tg('sendMessage', { chat_id: chatId,
+        text: 'No popularity data yet — the catalogue needs a ranking run.' });
+    }
+    const rows = list.map((r, i) => rankLabel(i, list.length) + '  <b>' + esc(r.name) + '</b>' +
+      (days && r.releaseDate ? '  <i>' + esc(r.releaseDate) + '</i>' : ''));
+    return tg('sendMessage', {
+      chat_id: chatId, parse_mode: 'HTML',
+      text: '<b>' + (days ? 'Popular, released in the last 30 days' : 'Most popular right now') +
+            '</b>\n\n' + rows.join('\n') +
+            '\n\n<i>Send a title, or tap one, to price it.</i>',
+      reply_markup: { inline_keyboard: list.slice(0, 8).map(r => [{
+        text: r.name.length > 60 ? r.name.slice(0, 57) + '…' : r.name,
+        callback_data: 'g:' + r.conceptId
+      }]) }
+    });
+  }
+
   if (/^\/cur/i.test(t)) {
     const c = (t.split(/\s+/)[1] || '').toUpperCase();
     if (!/^[A-Z]{3}$/.test(c)) {
@@ -512,5 +552,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, rankLabel, editionSummary, preview, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, rankLabel, editionSummary, preview, topList, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
 };

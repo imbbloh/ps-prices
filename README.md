@@ -302,6 +302,22 @@ The secret is in the path so an unsolicited POST cannot feed the bot updates.
   Excel renders `™` and `「」` rather than mojibake. The JSON stays the source of truth: the app
   reads it, and `--csv` re-derives the CSV from it at any time.
 
+  **Popularity** comes from the grid's own default order — unfiltered, offset 0 returns Fortnite,
+  so position in that walk *is* the store's ranking rather than anything computed here. `--rank`
+  records it for the first few hundred games in five requests; past that the order is a long tail
+  nobody sorted deliberately, so those stay unranked rather than being ranked last. Stale ranks
+  are cleared each run, so a game that drops out of the top loses its rank instead of keeping it
+  forever.
+
+  ```
+  node catalog.js --rank            # record the ranking (~5 requests)
+  node catalog.js --top 10          # the most popular
+  node catalog.js --top 10 --days 30   # popular among the last 30 days of releases
+  ```
+
+  In the bot, the same two lists are `/top` and `/new`. Both read the catalogue in memory, so
+  they answer instantly — no store request — and each entry is a button that prices it.
+
   Filters are `"<facet>:<value>"` strings, verified against the counts the API reports for its
   own facets. Two findings shape the design:
 

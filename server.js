@@ -55,6 +55,9 @@ function loadCatalog(file) {
       names.set(String(r.conceptId), r.name);
     }
     m.names = names;
+    // The rows themselves, for anything that needs more than name -> id: the
+    // popularity ranking and release dates are per row, not per key.
+    m.rows = rows.filter(r => r && r.conceptId && r.name);
     return m.size ? m : null;
   } catch (e) { return null; }
 }
