@@ -193,12 +193,13 @@ function homeButton(pr, target, rates) {
   };
 }
 
-// Two lines per region. The converted price leads, and the rank number is gone:
-// with the price first, every row's figure starts at the same x and the column
-// reads down the message. It could not while a name of varying length came
-// first, and Telegram offers no alignment to fix that with -- only a monospace
-// span, which costs the links and the strikethrough. Ordering already says which
-// is cheapest, so the number was paying for itself twice.
+// Two lines per region, and the converted price leads: with the price first,
+// every row's figure starts at the same x and the column reads down the message.
+// It could not while anything of varying length came first, and Telegram offers
+// no alignment to fix that with -- only a monospace span, which costs the links
+// and the strikethrough. The rank follows the price rather than opening the row,
+// which is what keeps the column straight when the ranking reaches double
+// figures in the expanded view.
 //
 // Both prices link to the same page, so whichever number the eye lands on is
 // the one that can be tapped.
@@ -208,11 +209,11 @@ function homeButton(pr, target, rates) {
 // the whole point. Unknown stays blank -- the extractor reports null when a
 // storefront's spec table could not be read, and a blank is honest where "no
 // English" would be a guess.
-function line(x, target) {
+function line(x, target, i) {
   const place = REGION_NAMES[x.region] || x.region;
   const link = t => x.url ? '<a href="' + esc(x.url) + '">' + esc(t) + '</a>' : esc(t);
   const head = '<b>' + (x.conv != null ? link(converted(target, x.conv)) : '—') +
-               '</b>  ·  ' + flag(x.region) + ' <b>' + esc(place) + '</b>';
+               '</b>  ·  ' + (i + 1) + '. ' + flag(x.region) + ' <b>' + esc(place) + '</b>';
 
   const bits = [link(money(x.currency, x.price))];
   // The struck-through old price says "on sale" on its own; the percentage
@@ -228,7 +229,7 @@ function formatPrices(pr, target, rates, limit) {
     return { text: '<b>' + esc(pr.title) + '</b>\nNo region has a price for this one.', rows: 0 };
   }
   const shown = rows.slice(0, limit);
-  const body = shown.map(x => line(x, target)).join('\n');
+  const body = shown.map((x, i) => line(x, target, i)).join('\n');
   // No subtitle when the rates are fine: the prices are already in order and
   // each one carries its own currency symbol, so the line only restated what
   // the list shows. It stays for the one case that is not self-evident.

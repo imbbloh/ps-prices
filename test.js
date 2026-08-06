@@ -987,10 +987,11 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(plainRows.length === 2,
     'bot: every row opens with the converted price, so the column lines up',
     '-> ' + JSON.stringify(plainRows));
-  check(/^S\$48\.78\s+·\s+🇮🇳 India$/.test(plainRows[0]),
-    'bot: price first, then flag and country', '-> ' + plainRows[0]);
-  check(!/^\d+\./m.test(shown5.text.replace(/<[^>]+>/g, '')),
-    'bot: no rank numbers, which would push the prices out of line');
+  check(/^S\$48\.78\s+·\s+1\. 🇮🇳 India$/.test(plainRows[0]),
+    'bot: price, then rank, then flag and country', '-> ' + plainRows[0]);
+  check(/^S\$\d/.test(plainRows[1]),
+    'bot: the rank follows the price rather than opening the row, so the column stays straight',
+    '-> ' + plainRows[1]);
   check(shown5.text.split('\n').filter(l => l.trim()).length === 1 + 2 * 2 + 1,
     'bot: two lines per region, plus a title and a footer');
   check(!/Cheapest first/.test(shown5.text),
