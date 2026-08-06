@@ -1008,8 +1008,9 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(new Set(wide.map(l => l.indexOf('🇺🇸'))).size === 1,
     'bot: so country names start at the same offset too, rows 1 through 11',
     '-> ' + JSON.stringify([...new Set(wide.map(l => l.indexOf('🇺🇸')))]));
-  check(shown5.text.split('\n').filter(l => l.trim()).length === 1 + 3 * 2 + 1,
-    'bot: three lines per region, plus a title and a footer');
+  check(shown5.text.split('\n').filter(l => l.trim()).length === 1 + 3 * 2 + 2,
+    'bot: three lines per region, plus a title and a two-line footer',
+    '-> ' + shown5.text.split('\n').filter(l => l.trim()).length);
   check(!/Cheapest first/.test(shown5.text),
     'bot: no subtitle restating what the ordering and the symbols already show');
   check(/no live exchange rates/.test(bot.formatPrices(sample, 'SGD', null, 5).text),
@@ -1046,22 +1047,42 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   const none = bot.formatPrices({ title: 'X', priced: 0, total: 20, results: [] }, 'SGD', rates, 5);
   check(none.rows === 0 && /No region/.test(none.text), 'bot: a game with no prices says so');
 
-  // The footer is a count, not a sentence, with the editions under it.
-  const footLines = shown5.text.replace(/<[^>]+>/g, '').trim().split('\n').slice(-2);
-  check(footLines[footLines.length - 1].trim() === '3/20 regions',
-    'bot: the footer is just the count', '-> ' + JSON.stringify(footLines));
-  const eds = bot.formatPrices({ ...sample, results: [
-    sample.results[0], { ...sample.results[1], editions: [{ price: 2999 }, { price: 4499 }] }
-  ] }, 'SGD', rates, 5).text.replace(/<[^>]+>/g, '').trim().split('\n');
-  check(/^2 editions in 🇮🇳 S\$/.test(eds[eds.length - 1]),
-    'bot: the cheapest region\'s editions are summarised below it',
-    '-> ' + eds[eds.length - 1]);
-  check(/S\$\d+\.\d\d – S\$\d+\.\d\d$/.test(eds[eds.length - 1]),
-    'bot: as a converted span, comparable with the prices above',
-    '-> ' + eds[eds.length - 1]);
-  check(bot.editionSummary({ ...sample.results[1], editions: [{ price: 2999 }] }, 'SGD') === null,
-    'bot: a single edition is not worth a line');
-  check(bot.editionSummary(null, 'SGD') === null, 'bot: and neither is no region at all');
+  // The footer is a count, with the edition tally under it.
+  const foot5 = shown5.text.replace(/<[^>]+>/g, '').trim().split('\n');
+  check(foot5[foot5.length - 2].trim() === '3/20 Regions Priced.',
+    'bot: the footer is the count, said once', '-> ' + foot5[foot5.length - 2]);
+
+  // Nearly every storefront lists the same editions, so one number covers them.
+  const ed = (region, n) => ({ region, currency: 'USD', price: 10, original: null,
+    discount: null, editions: Array.from({ length: n }, (_, k) => ({ price: k + 1 })),
+    url: 'https://s/' + region, redirected: false, english: true });
+  const tally = res => bot.editionSummary(res);
+  check(tally([ed('US', 2), ed('IN', 2), ed('JP', 2)]) === '2 Editions Found.',
+    'bot: agreement across regions is one number', '-> ' + tally([ed('US', 2), ed('IN', 2)]));
+  check(tally([ed('US', 1), ed('IN', 1)]) === '1 Edition Found.',
+    'bot: and it is singular when there is one');
+
+  // A storefront that differs is named rather than averaged away.
+  check(tally([ed('US', 2), ed('IN', 2), ed('JP', 2), ed('KR', 3)]) ===
+        '2 Editions Found. 3 Editions in 🇰🇷',
+    'bot: a region with more editions is called out',
+    '-> ' + tally([ed('US', 2), ed('IN', 2), ed('JP', 2), ed('KR', 3)]));
+  check(tally([ed('US', 2), ed('IN', 2), ed('KR', 3), ed('JP', 3)]).includes('3 Editions in 🇰🇷 🇯🇵'),
+    'bot: regions sharing an odd count are named together',
+    '-> ' + tally([ed('US', 2), ed('IN', 2), ed('KR', 3), ed('JP', 3)]));
+  check(tally([ed('US', 2), ed('IN', 2), ed('KR', 1), ed('JP', 4)]) ===
+        '2 Editions Found. 1 Edition in 🇰🇷 4 Editions in 🇯🇵',
+    'bot: several odd counts are listed smallest first',
+    '-> ' + tally([ed('US', 2), ed('IN', 2), ed('KR', 1), ed('JP', 4)]));
+
+  // On a tie the smaller count is the norm: extra listings are the anomaly.
+  check(tally([ed('US', 2), ed('KR', 3)]) === '2 Editions Found. 3 Editions in 🇰🇷',
+    'bot: on a tie the smaller count is treated as the norm',
+    '-> ' + tally([ed('US', 2), ed('KR', 3)]));
+
+  check(tally([{ region: 'US', editions: [] }]) === null,
+    'bot: regions with no editions say nothing either way');
+  check(tally([]) === null && tally(null) === null, 'bot: and no results, no line');
 
   const noFx = bot.formatPrices(sample, 'SGD', null, 5);
   check(/local prices only/i.test(noFx.text),

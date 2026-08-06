@@ -240,19 +240,35 @@ function line(x, target, i, total) {
   return head + '\n' + conv + '\n    <i>' + bits.join('  ') + '</i>';
 }
 
-// What else the cheapest region sells, in one line. Edition lists differ from
-// storefront to storefront, so there is no single answer across twenty of them;
-// the one worth summarising is the region actually being recommended. Prices are
-// converted, so the span is comparable with the figure above it.
-function editionSummary(top, target) {
-  if (!top || !top.editions || top.editions.length < 2) return null;
-  const prices = top.editions.map(e => e.price).filter(p => p > 0);
-  if (prices.length < 2) return null;
-  const lo = Math.min(...prices), hi = Math.max(...prices);
-  const span = top.conv != null && top.price > 0
-    ? converted(target, top.conv * (lo / top.price)) + ' – ' + converted(target, top.conv * (hi / top.price))
-    : money(top.currency, lo) + ' – ' + money(top.currency, hi);
-  return top.editions.length + ' editions in ' + flag(top.region) + ' ' + span;
+// How many editions the game has, and which storefronts disagree.
+//
+// Nearly every region lists the same editions, so one number covers the lot:
+// the count the most regions agree on. Where a storefront differs -- an extra
+// bundle sold only in Korea, say -- it is named rather than averaged away,
+// because that difference is exactly what a shopper comparing regions wants to
+// see. Regions with no priced editions at all say nothing either way.
+function editionSummary(results) {
+  const counts = new Map();                    // edition count -> regions with it
+  for (const x of results || []) {
+    const n = (x.editions || []).length;
+    if (!n) continue;
+    if (!counts.has(n)) counts.set(n, []);
+    counts.get(n).push(x.region);
+  }
+  if (!counts.size) return null;
+
+  // The count the most regions agree on; on a tie, the smaller count, since the
+  // extra listings are the anomaly rather than the norm.
+  const common = [...counts.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0] - b[0])[0][0];
+  const plural = n => n + (n === 1 ? ' Edition' : ' Editions');
+
+  const odd = [...counts.entries()]
+    .filter(([n]) => n !== common)
+    .sort((a, b) => a[0] - b[0])
+    .map(([n, regions]) => plural(n) + ' in ' + regions.map(flag).join(' '));
+
+  return [plural(common) + ' Found.', ...odd].join(' ');
 }
 
 function formatPrices(pr, target, rates, limit) {
@@ -267,7 +283,7 @@ function formatPrices(pr, target, rates, limit) {
   // the list shows. It stays for the one case that is not self-evident.
   const head = '🎮 <b>' + esc(pr.title) + '</b>' +
     (rates ? '' : '\n<i>Local prices only — no live exchange rates</i>');
-  const foot = [pr.priced + '/' + pr.total + ' regions', editionSummary(rows[0], target)]
+  const foot = [pr.priced + '/' + pr.total + ' Regions Priced.', editionSummary(pr.results)]
     .filter(Boolean).join('\n');
   return {
     text: head + '\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',

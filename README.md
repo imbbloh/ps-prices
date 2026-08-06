@@ -128,8 +128,8 @@ Results are the **top 5 regions**, cheapest first, two lines each:
     S$50.99
     ₩̶7̶9̶,̶8̶0̶0̶  ₩56,658  🚫 ENG
 
-20/20 regions
-2 editions in 🇺🇦 S$47.28 – S$56.73
+20/20 Regions Priced.
+2 Editions Found. 3 Editions in 🇰🇷
         [ 🇸🇬 S$69.50 ]  [ Show More ]
 ```
 
@@ -159,10 +159,12 @@ their row, so two together read as small chips rather than full-width bars. Show
 all twenty by replaying the finished lookup from memory rather than pricing again, and keeps the
 home button.
 
-The footer is a count, `20/20 regions`, with a one-line **edition summary** under it. Edition
-lists differ from storefront to storefront, so there is no single answer across twenty of them —
-the one worth summarising is the region actually being recommended, and its span is converted so
-it is comparable with the figures above. A game with one edition everywhere gets no line.
+The footer is a count with the **edition tally** under it. Nearly every region lists the same
+editions, so one number covers the lot: the count the most regions agree on. Where a storefront
+differs — an extra bundle sold only in Korea, say — it is named rather than averaged away, since
+that difference is exactly what someone comparing regions wants to see. On a tie the smaller
+count is treated as the norm, because extra listings are the anomaly. Regions with no priced
+editions say nothing either way, and a game with no editions anywhere gets no line.
 
 There is no subtitle: the prices are already in order and each carries its own currency symbol,
 so a line saying so only restated the list. It appears for the one case that is not
