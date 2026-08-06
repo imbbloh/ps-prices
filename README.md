@@ -128,7 +128,8 @@ Results are the **top 5 regions**, cheapest first, two lines each:
     S$50.99
     ₩̶7̶9̶,̶8̶0̶0̶  ₩56,658  🚫 ENG
 
-20 of 20 regions priced · showing 5
+20/20 regions
+2 editions in 🇺🇦 S$47.28 – S$56.73
         [ 🇸🇬 S$69.50 ]  [ Show More ]
 ```
 
@@ -157,6 +158,11 @@ than a ranked result, so it sits beside **Show More** in one row — Telegram si
 their row, so two together read as small chips rather than full-width bars. Show More expands to
 all twenty by replaying the finished lookup from memory rather than pricing again, and keeps the
 home button.
+
+The footer is a count, `20/20 regions`, with a one-line **edition summary** under it. Edition
+lists differ from storefront to storefront, so there is no single answer across twenty of them —
+the one worth summarising is the region actually being recommended, and its span is converted so
+it is comparable with the figures above. A game with one edition everywhere gets no line.
 
 There is no subtitle: the prices are already in order and each carries its own currency symbol,
 so a line saying so only restated the list. It appears for the one case that is not

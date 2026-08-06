@@ -1046,6 +1046,23 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   const none = bot.formatPrices({ title: 'X', priced: 0, total: 20, results: [] }, 'SGD', rates, 5);
   check(none.rows === 0 && /No region/.test(none.text), 'bot: a game with no prices says so');
 
+  // The footer is a count, not a sentence, with the editions under it.
+  const footLines = shown5.text.replace(/<[^>]+>/g, '').trim().split('\n').slice(-2);
+  check(footLines[footLines.length - 1].trim() === '3/20 regions',
+    'bot: the footer is just the count', '-> ' + JSON.stringify(footLines));
+  const eds = bot.formatPrices({ ...sample, results: [
+    sample.results[0], { ...sample.results[1], editions: [{ price: 2999 }, { price: 4499 }] }
+  ] }, 'SGD', rates, 5).text.replace(/<[^>]+>/g, '').trim().split('\n');
+  check(/^2 editions in 🇮🇳 S\$/.test(eds[eds.length - 1]),
+    'bot: the cheapest region\'s editions are summarised below it',
+    '-> ' + eds[eds.length - 1]);
+  check(/S\$\d+\.\d\d – S\$\d+\.\d\d$/.test(eds[eds.length - 1]),
+    'bot: as a converted span, comparable with the prices above',
+    '-> ' + eds[eds.length - 1]);
+  check(bot.editionSummary({ ...sample.results[1], editions: [{ price: 2999 }] }, 'SGD') === null,
+    'bot: a single edition is not worth a line');
+  check(bot.editionSummary(null, 'SGD') === null, 'bot: and neither is no region at all');
+
   const noFx = bot.formatPrices(sample, 'SGD', null, 5);
   check(/local prices only/i.test(noFx.text),
     'bot: without rates the local prices still show, as on the website');

@@ -240,6 +240,21 @@ function line(x, target, i, total) {
   return head + '\n' + conv + '\n    <i>' + bits.join('  ') + '</i>';
 }
 
+// What else the cheapest region sells, in one line. Edition lists differ from
+// storefront to storefront, so there is no single answer across twenty of them;
+// the one worth summarising is the region actually being recommended. Prices are
+// converted, so the span is comparable with the figure above it.
+function editionSummary(top, target) {
+  if (!top || !top.editions || top.editions.length < 2) return null;
+  const prices = top.editions.map(e => e.price).filter(p => p > 0);
+  if (prices.length < 2) return null;
+  const lo = Math.min(...prices), hi = Math.max(...prices);
+  const span = top.conv != null && top.price > 0
+    ? converted(target, top.conv * (lo / top.price)) + ' – ' + converted(target, top.conv * (hi / top.price))
+    : money(top.currency, lo) + ' – ' + money(top.currency, hi);
+  return top.editions.length + ' editions in ' + flag(top.region) + ' ' + span;
+}
+
 function formatPrices(pr, target, rates, limit) {
   const rows = rankRows(pr.results, target, rates);
   if (!rows.length) {
@@ -252,11 +267,8 @@ function formatPrices(pr, target, rates, limit) {
   // the list shows. It stays for the one case that is not self-evident.
   const head = '🎮 <b>' + esc(pr.title) + '</b>' +
     (rates ? '' : '\n<i>Local prices only — no live exchange rates</i>');
-  const foot = [
-    pr.priced + ' of ' + pr.total + ' regions priced',
-    shown.length < rows.length ? 'showing ' + shown.length : null,
-    pr.priceAdjusted ? pr.priceAdjusted + ' re-checked against other regions' : null
-  ].filter(Boolean).join(' · ');
+  const foot = [pr.priced + '/' + pr.total + ' regions', editionSummary(rows[0], target)]
+    .filter(Boolean).join('\n');
   return {
     text: head + '\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',
     rows: rows.length,
@@ -474,5 +486,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, rankLabel, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, rankLabel, editionSummary, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
 };
