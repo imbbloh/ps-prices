@@ -193,17 +193,26 @@ function homeButton(pr, target, rates) {
   };
 }
 
-// Two lines per region: rank and price, then the store's own price underneath.
+// Three lines per region: which country, what it costs in your currency, and
+// what the store itself charges.
 //
-// The rank opens the row, and the converted prices still line up beneath each
-// other, because the rank is padded to a fixed width. Telegram has no text
-// alignment and its font is proportional, so ordinary spaces would not do it --
-// but U+2007 FIGURE SPACE is defined to be exactly as wide as a digit, which is
-// what it exists for. Without that padding the expanded list breaks its own
-// column at row ten, where "10." is wider than "9.".
+//   1.  🇺🇦 Ukraine
+//       S$47.28
+//       U̶A̶H̶ ̶2̶,̶1̶9̶9̶  UAH 1,649  🚫 ENG
 //
-// Both prices link to the same page, so whichever number the eye lands on is
-// the one that can be tapped.
+// Giving the converted price a line of its own is what makes the figures line
+// up: they all start at the same indent regardless of how long a country name
+// is. Telegram has no text alignment, and the one fixed-width context it offers
+// -- a code span -- allows no nesting, so it would cost both the links and the
+// strikethrough.
+//
+// The rank is still padded to a fixed width, so country names line up too once
+// the expanded list passes row nine. U+2007 FIGURE SPACE is exactly as wide as
+// a digit, which is what it exists for; ordinary spaces cannot hold a column in
+// a proportional font.
+//
+// On the last line the old price comes first, struck through, and the price you
+// actually pay follows it -- the same order the stores themselves use.
 //
 // Only the absence of English is marked. A tick on nineteen rows out of twenty
 // is noise; the one row where the game is not playable in a language you read is
@@ -220,16 +229,15 @@ function rankLabel(i, total) {
 function line(x, target, i, total) {
   const place = REGION_NAMES[x.region] || x.region;
   const link = t => x.url ? '<a href="' + esc(x.url) + '">' + esc(t) + '</a>' : esc(t);
-  const head = '<b>' + rankLabel(i, total) + '  ' +
-               (x.conv != null ? link(converted(target, x.conv)) : '—') +
-               '</b>  ·  ' + flag(x.region) + ' <b>' + esc(place) + '</b>';
 
-  const bits = [link(money(x.currency, x.price))];
-  // The struck-through old price says "on sale" on its own; the percentage
-  // beside it was a third number on a line that already had two.
+  const head = '<b>' + rankLabel(i, total) + '  ' + flag(x.region) + ' ' + esc(place) + '</b>';
+  const conv = '    <b>' + (x.conv != null ? link(converted(target, x.conv)) : '—') + '</b>';
+
+  const bits = [];
   if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
-  if (x.english === false) bits.push('no English');
-  return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
+  bits.push(link(money(x.currency, x.price)));
+  if (x.english === false) bits.push('🚫 ENG');
+  return head + '\n' + conv + '\n    <i>' + bits.join('  ') + '</i>';
 }
 
 function formatPrices(pr, target, rates, limit) {

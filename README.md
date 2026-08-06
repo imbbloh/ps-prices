@@ -118,25 +118,34 @@ Results are the **top 5 regions**, cheapest first, two lines each:
 ```
 🎮 Ghost of Yōtei
 
-1.  S$47.28  ·  🇺🇦 Ukraine
-    UAH 1,649  ·  U̶A̶H̶ ̶2̶,̶1̶9̶9̶
-2.  S$50.48  ·  🇮🇳 India
-    ₹3,749  ·  ₹̶4̶,̶9̶9̶9̶
-3.  S$50.99  ·  🇰🇷 South Korea
-    ₩56,658  ·  ₩̶7̶9̶,̶8̶0̶0̶  ·  no English
+1.  🇺🇦 Ukraine
+    S$47.28
+    U̶A̶H̶ ̶2̶,̶1̶9̶9̶  UAH 1,649
+2.  🇮🇳 India
+    S$50.48
+    ₹̶4̶,̶9̶9̶9̶  ₹3,749
+3.  🇰🇷 South Korea
+    S$50.99
+    ₩̶7̶9̶,̶8̶0̶0̶  ₩56,658  🚫 ENG
 
 20 of 20 regions priced · showing 5
         [ 🇸🇬 S$69.50 ]  [ Show More ]
 ```
 
-**Rank first, then the converted price**, which still lines up down the message because the rank
-is padded to a fixed width. Telegram has no text alignment and its font is proportional, so
-ordinary spaces would not hold a column — but `U+2007 FIGURE SPACE` is defined to be exactly as
-wide as a digit, which is what it exists for. Without it the expanded list breaks its own column
-at row ten, where `10.` is wider than `9.`. Both prices link to the page they came from, so
-whichever number the eye lands on can be tapped.
+Three lines per region: which country, what it costs in your currency, and what the store itself
+charges. **Giving the converted price a line of its own is what makes the figures line up** —
+they start at the same indent whatever the country is called. Telegram has no text alignment,
+and the one fixed-width context it offers (a code span) allows no nesting, so it would cost both
+the links and the strikethrough.
 
-**Only the absence of English is marked.** A tick on nineteen rows out of twenty is noise; the
+The rank is padded to a fixed width so country names line up too once the list passes row nine:
+`U+2007 FIGURE SPACE` is exactly as wide as a digit, which is what it exists for, and ordinary
+spaces cannot hold a column in a proportional font. On the last line the old price comes first,
+struck through, with the price you actually pay after it — the order the stores themselves use.
+Both prices link to the page they came from, so whichever number the eye lands on can be
+tapped.
+
+**Only the absence of English is marked** (`🚫 ENG`). A tick on nineteen rows out of twenty is noise; the
 one row where the game is not playable in a language you read is the whole point. Unknown stays
 blank — the extractor reports `null` when a storefront's spec table could not be read, and a
 blank is honest where "no English" would be a guess.
