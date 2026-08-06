@@ -174,20 +174,31 @@ function rankRows(results, target, rates) {
 // together on a single row that wrapped mid-price on a phone; splitting it puts
 // the number being compared -- the converted price -- at the end of a short
 // first line, and the store's own price with its discount underneath.
+// Telegram has no text alignment. The only fixed-width context it offers is a
+// code span, so flushing anything right means rendering that whole line as one
+// -- which rules out a link or a strikethrough inside it, since Telegram allows
+// no nesting there. Hence the link moves up to the country name on the first
+// line, where it stays clickable, and the old price is prefixed "was" instead
+// of being struck through.
+const DETAIL_W = 34;                   // fits a phone's monospace width without wrapping
+
 function line(x, target, i) {
   const place = REGION_NAMES[x.region] || x.region;
   const conv = x.conv != null ? converted(target, x.conv) : '—';
-  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + esc(place) +
+  const name = x.url ? '<a href="' + esc(x.url) + '">' + esc(place) + '</a>' : esc(place);
+  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + name +
                '  ·  ' + esc(conv) + '</b>';
 
-  const local = money(x.currency, x.price);
-  const bits = [x.url ? '<a href="' + esc(x.url) + '">' + esc(local) + '</a>' : esc(local)];
-  // The struck-through old price says "on sale" on its own; the percentage
-  // beside it was a third number on a line that already had two.
-  if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
-  if (x.editions && x.editions.length > 1) bits.push(x.editions.length + ' editions');
-  if (x.english === false) bits.push('no English');
-  return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
+  const left = [money(x.currency, x.price)];
+  if (x.original != null) left.push('was ' + money(x.currency, x.original));
+  if (x.english === false) left.push('no English');
+  const right = x.editions && x.editions.length > 1 ? x.editions.length + ' editions' : '';
+
+  let detail = left.join('  ');
+  // Pad to the column when it fits; when it does not, one space, because a
+  // wrapped line is worse than an unaligned one.
+  if (right) detail += ' '.repeat(Math.max(1, DETAIL_W - detail.length - right.length)) + right;
+  return head + '\n<code>' + esc(detail) + '</code>';
 }
 
 // The home store, worked out from the currency being converted into: SGD -> SG,
@@ -205,17 +216,12 @@ function homeLine(pr, target, rates, cheapest) {
   const row = pr.results.find(x => x.region === home && x.price != null);
   if (!row) return null;
   const conv = convert(row.price, row.currency, target, rates);
-  const at = '🏠 ' + flag(home) + ' ' + esc(REGION_NAMES[home] || home) + '  ·  ' +
-             esc(conv != null ? converted(target, conv) : money(row.currency, row.price));
-  // Same currency for both, so the saving is a subtraction rather than a claim.
-  if (conv == null || !cheapest || cheapest.conv == null || cheapest.region === home) {
-    return '<b>' + at + '</b>';
-  }
-  const save = conv - cheapest.conv;
-  if (save <= 0) return '<b>' + at + '</b>  <i>already the cheapest</i>';
-  return '<b>' + at + '</b>  <i>· save ' + esc(converted(target, save)) +
-         ' (' + Math.round(save / conv * 100) + '%) in ' +
-         esc(REGION_NAMES[cheapest.region] || cheapest.region) + '</i>';
+  // The price alone: the list underneath already shows what the cheapest region
+  // costs, so spelling out the difference was arithmetic the reader can see.
+  const link = row.url ? '<a href="' + esc(row.url) + '">' + esc(REGION_NAMES[home] || home) + '</a>'
+                       : esc(REGION_NAMES[home] || home);
+  return '<b>🏠 ' + flag(home) + ' ' + link + '  ·  ' +
+         esc(conv != null ? converted(target, conv) : money(row.currency, row.price)) + '</b>';
 }
 
 function formatPrices(pr, target, rates, limit) {

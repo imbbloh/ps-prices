@@ -968,12 +968,12 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     '-> ' + ranked.map(r => r.region).join(','));
 
   const shown5 = bot.formatPrices(sample, 'SGD', rates, 5);
-  check(shown5.text.includes('🇮🇳') && shown5.text.includes('<s>₹4,499</s>'),
-    'bot: a discounted row shows the old price struck through');
+  check(shown5.text.includes('🇮🇳') && shown5.text.includes('was ₹4,499'),
+    'bot: a discounted row shows what the price was');
   check(!shown5.text.includes('-33%'),
-    'bot: and not the percentage as well, which the strikethrough already says');
-  check(shown5.text.includes('href="https://store/in"'),
-    'bot: the price links to the store page it came from');
+    'bot: and not the percentage as well, which "was" already says');
+  check(/<a href="https:\/\/store\/in">India<\/a>/.test(shown5.text),
+    'bot: the country name links to the store page it came from');
   check(shown5.text.includes('2 editions'), 'bot: extra editions are noted');
   check(!shown5.text.includes('🇹🇷'), 'bot: the redirected region is absent from the message');
   check(shown5.text.includes('India') && shown5.text.includes('United States'),
@@ -983,6 +983,24 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     '-> ' + shown5.text.replace(/<[^>]+>/g, '').split('\n')[3]);
   check(shown5.text.split('\n').filter(l => l.trim()).length === 2 + 2 * 2 + 1,
     'bot: two lines per region, plus a header and a footer');
+
+  // Right alignment needs a fixed-width context, and a code span is the only
+  // one Telegram has. The column has to hold without wrapping on a phone.
+  const detail = shown5.text.split('\n').find(l => l.includes('editions'));
+  check(/<code>.*<\/code>/.test(detail),
+    'bot: the detail line is monospace, which is what makes a flushed column possible');
+  const plain = detail.replace(/<[^>]+>/g, '');
+  check(plain.endsWith('2 editions') && /\s{2,}2 editions$/.test(plain),
+    'bot: the edition count is flushed to the right of that column', '-> ' + JSON.stringify(plain));
+  check(plain.length <= 36,
+    'bot: and the column stays narrow enough not to wrap', '-> ' + plain.length + ' chars');
+
+  // A detail line too long for the column keeps one space rather than wrapping.
+  const longRow = { ...sample, results: [{ ...sample.results[1], currency: 'IDR', price: 1234567, original: 2345678 }] };
+  const longPlain = bot.formatPrices(longRow, 'SGD', { ...rates, IDR: 16000 }, 5)
+    .text.split('\n').find(l => l.includes('was')).replace(/<[^>]+>/g, '');
+  check(!/  $/.test(longPlain) && longPlain.includes('was'),
+    'bot: an over-long detail line is left unpadded rather than wrapped');
 
   // The narrow symbol for SGD is a bare "$", which is the ambiguity the whole
   // column exists to resolve.
@@ -1020,8 +1038,8 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(/🏠 🇸🇬 Singapore\s+·\s+S\$98\.90/.test(homed),
     'bot: the home price is shown even when it is not among the cheapest',
     '-> ' + (homed.split('\n')[3] || ''));
-  check(/save S\$5[0-9.]+ \(5[0-9]%\) in India/.test(homed),
-    'bot: the saving is stated against the cheapest region, in one currency',
+  check(!/save/.test(homed),
+    'bot: the home line is the price alone -- the list below shows the difference',
     '-> ' + (homed.split('\n')[3] || ''));
   check(homed.indexOf('🏠') < homed.indexOf('1.'),
     'bot: the reference sits above the list, not buried in it');
@@ -1034,8 +1052,7 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
               ...sample.results]
   };
   const ch = bot.formatPrices(cheapHome, 'SGD', rates, 5).text.replace(/<[^>]+>/g, '');
-  check(/🏠 🇸🇬 Singapore/.test(ch) && !/save/.test(ch),
-    'bot: no saving is claimed when home is already cheapest');
+  check(/🏠 🇸🇬 Singapore/.test(ch), 'bot: the home line shows wherever home ranks');
 
   // No price at home, and no rates at all: neither may break the message.
   check(!/🏠/.test(bot.formatPrices(sample, 'SGD', rates, 5).text),
