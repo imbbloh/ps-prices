@@ -968,8 +968,10 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     '-> ' + ranked.map(r => r.region).join(','));
 
   const shown5 = bot.formatPrices(sample, 'SGD', rates, 5);
-  check(shown5.text.includes('🇮🇳') && shown5.text.includes('<s>') && shown5.text.includes('-33%'),
+  check(shown5.text.includes('🇮🇳') && shown5.text.includes('<s>₹4,499</s>'),
     'bot: a discounted row shows the old price struck through');
+  check(!shown5.text.includes('-33%'),
+    'bot: and not the percentage as well, which the strikethrough already says');
   check(shown5.text.includes('href="https://store/in"'),
     'bot: the price links to the store page it came from');
   check(shown5.text.includes('2 editions'), 'bot: extra editions are noted');

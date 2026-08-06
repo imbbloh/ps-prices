@@ -122,9 +122,9 @@ Cheapest first, converted to SGD
 🏠 🇸🇬 Singapore  ·  S$98.90  · save S$51.63 (52%) in Ukraine
 
 1. 🇺🇦 Ukraine  ·  S$47.27
-    UAH 1,649  ·  UAH 2,199  ·  -25%  ·  2 editions
+    UAH 1,649  ·  UAH 2,199  ·  2 editions
 2. 🇮🇳 India  ·  S$50.38
-    ₹3,749  ·  ₹4,999  ·  -25%  ·  2 editions
+    ₹3,749  ·  ₹4,999  ·  2 editions
 ```
 
 The **home price comes first**, worked out from the currency being converted into (SGD → SG,
@@ -134,8 +134,9 @@ saving against the cheapest region stated in one currency. If home is already ch
 so rather than inventing a saving.
 
 The converted price closes the first line, since that is the number being compared; the store's
-own price sits underneath with its strikethrough, discount and edition count, and links to the
-page it came from. Countries are named rather than coded. Local prices print the disambiguated
+own price sits underneath with its strikethrough and edition count, and links to the page it
+came from. The discount percentage is deliberately absent: the struck-through old price already
+says the game is on sale, and it was a third number on a line that had two. Countries are named rather than coded. Local prices print the disambiguated
 symbol — `NT$`, `UAH` — because twenty storefronts put several different dollars next to each
 other, while the converted column uses a compact unambiguous form (`S$`, `US$`) since the header
 already names the currency. A **Show all 20 regions** button expands the list, replaying the

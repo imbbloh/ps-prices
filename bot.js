@@ -182,8 +182,9 @@ function line(x, target, i) {
 
   const local = money(x.currency, x.price);
   const bits = [x.url ? '<a href="' + esc(x.url) + '">' + esc(local) + '</a>' : esc(local)];
+  // The struck-through old price says "on sale" on its own; the percentage
+  // beside it was a third number on a line that already had two.
   if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
-  if (x.discount) bits.push(esc(x.discount));
   if (x.editions && x.editions.length > 1) bits.push(x.editions.length + ' editions');
   if (x.english === false) bits.push('no English');
   return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
