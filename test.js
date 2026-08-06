@@ -913,6 +913,8 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   }
 
   // ---------------------------------------------------------------- the bot
+  // Intl separates a currency code from its number with a non-breaking space.
+  const nb = t => t.replace(/\u00a0/g, ' ');
   // Driven against a stub Telegram API, so every call the bot would make is
   // captured and nothing leaves the machine.
   const calls = [];
@@ -974,7 +976,10 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     'bot: and not the percentage as well, which the strikethrough already says');
   check(/<a href="https:\/\/store\/in">₹2,999<\/a>/.test(shown5.text),
     'bot: the price links to the store page it came from');
-  check(shown5.text.includes('2 editions'), 'bot: extra editions are noted');
+  check(!shown5.text.includes('editions'),
+    'bot: the edition count is gone from the rows');
+  check(shown5.text.includes('✓ EN'),
+    'bot: a region that supports English says so');
   check(!shown5.text.includes('🇹🇷'), 'bot: the redirected region is absent from the message');
   check(shown5.text.includes('India') && shown5.text.includes('United States'),
     'bot: rows name the country, not just its code');
@@ -986,9 +991,20 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   // Alignment was tried and reverted: a flushed column needs a code span, and
   // Telegram allows no nesting inside one, which costs the strikethrough.
-  const detail = shown5.text.split('\n').find(l => l.includes('editions'));
-  check(!/<code>/.test(detail) && /<s>/.test(shown5.text),
+  check(!/<code>/.test(shown5.text) && /<s>/.test(shown5.text),
     'bot: detail lines keep their markup rather than becoming a monospace column');
+
+  // English is three-valued, and unknown must not be reported as unsupported.
+  const langs = bot.formatPrices({ ...sample, results: [
+    { ...sample.results[0], english: false }, { ...sample.results[1], english: null }
+  ] }, 'SGD', rates, 5).text;
+  check(langs.includes('✗ EN'), 'bot: a region without English is marked');
+  check((langs.match(/EN/g) || []).length === 1,
+    'bot: an unknown language list is left blank rather than guessed at');
+
+  // Both prices on a row point at the same page.
+  check((shown5.text.match(/href="https:\/\/store\/in"/g) || []).length === 2,
+    'bot: the converted price is a link too, not just the local one');
 
   // The narrow symbol for SGD is a bare "$", which is the ambiguity the whole
   // column exists to resolve.
@@ -996,8 +1012,6 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
         bot.converted('TWD', 1412) === 'NT$1,412',
     'bot: the converted column never prints a bare dollar sign',
     '-> ' + bot.converted('SGD', 47.28));
-  // Intl separates a code from its number with a non-breaking space.
-  const nb = t => t.replace(/\u00a0/g, ' ');
   check(nb(bot.money('TWD', 1412)) === 'NT$1,412' && nb(bot.money('UAH', 1649)) === 'UAH 1,649',
     'bot: local prices keep the disambiguated symbol their store uses',
     '-> ' + bot.money('TWD', 1412));
@@ -1022,15 +1036,22 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
       { region: 'SG', currency: 'SGD', price: 98.9, original: null, discount: null,
         editions: [], url: 'https://store/sg', redirected: false, english: true }]
   };
-  const homed = bot.formatPrices(withHome, 'SGD', rates, 5).text.replace(/<[^>]+>/g, '');
-  check(/🏠 🇸🇬 Singapore\s+·\s+S\$98\.90/.test(homed),
-    'bot: the home price is shown even when it is not among the cheapest',
-    '-> ' + (homed.split('\n')[3] || ''));
-  check(!/save/.test(homed),
-    'bot: the home line is the price alone -- the list below shows the difference',
-    '-> ' + (homed.split('\n')[3] || ''));
-  check(homed.indexOf('🏠') < homed.indexOf('1.'),
-    'bot: the reference sits above the list, not buried in it');
+  const homed = bot.formatPrices(withHome, 'SGD', rates, 5);
+  check(homed.home && homed.home.text === '🇸🇬 S$98.90',
+    'bot: the home price becomes a compact button, not a line of text',
+    '-> ' + JSON.stringify(homed.home));
+  check(homed.home.url === 'https://store/sg', 'bot: and the button links to the home store');
+  check(!homed.text.includes('🏠'),
+    'bot: so it no longer takes a line above the list (it still ranks as a region)');
+
+  const kb = bot.keyboard(homed, 'tok').inline_keyboard[0];
+  check(kb.length === 2 && kb[0].url && kb[1].text === 'Show More',
+    'bot: home and Show More share one row, so both render as small chips',
+    '-> ' + JSON.stringify(kb.map(b2 => b2.text)));
+  check(bot.keyboard(homed, null).inline_keyboard[0].length === 1,
+    'bot: with nothing more to show, only the home button remains');
+  check(bot.keyboard({ home: null }, null) === undefined,
+    'bot: and no buttons at all rather than an empty row');
 
   // A home region that is itself the cheapest must not claim a saving.
   const cheapHome = {
@@ -1039,14 +1060,15 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
                 editions: [], url: 'https://store/sg', redirected: false, english: true },
               ...sample.results]
   };
-  const ch = bot.formatPrices(cheapHome, 'SGD', rates, 5).text.replace(/<[^>]+>/g, '');
-  check(/🏠 🇸🇬 Singapore/.test(ch), 'bot: the home line shows wherever home ranks');
+  check(bot.formatPrices(cheapHome, 'SGD', rates, 5).home !== null,
+    'bot: the home button shows wherever home ranks');
 
   // No price at home, and no rates at all: neither may break the message.
-  check(!/🏠/.test(bot.formatPrices(sample, 'SGD', rates, 5).text),
-    'bot: an unpriced home region is simply absent');
-  check(bot.formatPrices(withHome, 'SGD', null, 5).text.includes('🏠'),
-    'bot: without rates the home price still shows, in its own currency');
+  check(bot.formatPrices(sample, 'SGD', rates, 5).home === null,
+    'bot: an unpriced home region yields no button');
+  check(nb(bot.formatPrices(withHome, 'SGD', null, 5).home.text) === '🇸🇬 SGD 98.90',
+    'bot: without rates the home button still shows, in its own currency',
+    '-> ' + bot.formatPrices(withHome, 'SGD', null, 5).home.text);
 
   // /start and /cur need no network at all.
   calls.length = 0;
@@ -1062,10 +1084,10 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   // An ambiguous title offers buttons -- the dropdown, in a chat.
   calls.length = 0;
   await bot.handleUpdate({ message: { chat: { id: 7 }, text: 'ghost of' } });
-  const kb = calls[0].body.reply_markup.inline_keyboard;
-  check(kb.length === 2 && kb[0][0].callback_data === 'g:235227',
+  const pickKb = calls[0].body.reply_markup.inline_keyboard;
+  check(pickKb.length === 2 && pickKb[0][0].callback_data === 'g:235227',
     'bot: an ambiguous title offers each match as a button',
-    '-> ' + JSON.stringify(kb.map(r => r[0].text)));
+    '-> ' + JSON.stringify(pickKb.map(r => r[0].text)));
 
   // Show more replays a finished lookup without touching the store again.
   calls.length = 0;

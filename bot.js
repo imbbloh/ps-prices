@@ -172,23 +172,25 @@ function rankRows(results, target, rates) {
 
 // The home store, worked out from the currency being converted into: SGD -> SG,
 // EUR -> DE. A list of cheap regions means nothing without knowing what the game
-// costs at home, and the home store is usually nowhere near the top five. The
-// price alone -- the list underneath already shows what the cheapest region
-// costs, so spelling out the difference is arithmetic the reader can see.
+// costs at home, and the home store is usually nowhere near the top five.
+//
+// It is a button rather than a line of text: it is a reference and a link, not
+// a ranked result, and a button says both at a glance without competing with
+// the list for space.
 function homeRegion(target) {
   return Object.keys(S.EXPECT).find(r => S.EXPECT[r] === target) || null;
 }
 
-function homeLine(pr, target, rates) {
+function homeButton(pr, target, rates) {
   const home = homeRegion(target);
   if (!home) return null;
   const row = pr.results.find(x => x.region === home && x.price != null);
-  if (!row) return null;
+  if (!row || !row.url) return null;
   const conv = convert(row.price, row.currency, target, rates);
-  const place = REGION_NAMES[home] || home;
-  const link = row.url ? '<a href="' + esc(row.url) + '">' + esc(place) + '</a>' : esc(place);
-  return '<b>🏠 ' + flag(home) + ' ' + link + '  ·  ' +
-         esc(conv != null ? converted(target, conv) : money(row.currency, row.price)) + '</b>';
+  return {
+    text: flag(home) + ' ' + (conv != null ? converted(target, conv) : money(row.currency, row.price)),
+    url: row.url
+  };
 }
 
 // Two lines per region rather than one long one. Everything used to run
@@ -196,24 +198,26 @@ function homeLine(pr, target, rates) {
 // the number being compared -- the converted price -- at the end of a short
 // first line, and the store's own price underneath.
 //
-// The edition count is not flushed right, and cannot be. Telegram has no text
-// alignment, so a fixed column means rendering the line as a code span -- and
-// Telegram allows no nesting inside one, which costs both the link and the
-// strikethrough. The strikethrough is worth more than the alignment: it says
-// "on sale" at a glance, where a right-hand column only looks tidier.
+// Both prices link to the same page, so whichever number the eye lands on is
+// the one that can be tapped.
+//
+// English support replaces the edition count. Which editions exist is a detail
+// of the listing; whether the game is playable in a language you read decides
+// whether the region is any use at all. Unknown stays blank -- the extractor
+// reports null when a storefront's spec table could not be read, and a blank is
+// honest where "no English" would be a guess.
 function line(x, target, i) {
   const place = REGION_NAMES[x.region] || x.region;
-  const conv = x.conv != null ? converted(target, x.conv) : '—';
-  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + esc(place) +
-               '  ·  ' + esc(conv) + '</b>';
+  const link = t => x.url ? '<a href="' + esc(x.url) + '">' + esc(t) + '</a>' : esc(t);
+  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + esc(place) + '  ·  ' +
+               (x.conv != null ? link(converted(target, x.conv)) : '—') + '</b>';
 
-  const local = money(x.currency, x.price);
-  const bits = [x.url ? '<a href="' + esc(x.url) + '">' + esc(local) + '</a>' : esc(local)];
+  const bits = [link(money(x.currency, x.price))];
   // The struck-through old price says "on sale" on its own; the percentage
   // beside it was a third number on a line that already had two.
   if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
-  if (x.editions && x.editions.length > 1) bits.push(x.editions.length + ' editions');
-  if (x.english === false) bits.push('no English');
+  if (x.english === true) bits.push('✓ EN');
+  else if (x.english === false) bits.push('✗ EN');
   return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
 }
 
@@ -227,18 +231,26 @@ function formatPrices(pr, target, rates, limit) {
   const head = '🎮 <b>' + esc(pr.title) + '</b>\n<i>' +
     esc(rates ? 'Cheapest first, converted to ' + target
               : 'Local prices only — no live exchange rates') + '</i>';
-  // The home price goes above the list, not buried in it: it is the reference
-  // every other number is being read against.
-  const home = homeLine(pr, target, rates);
   const foot = [
     pr.priced + ' of ' + pr.total + ' regions priced',
     shown.length < rows.length ? 'showing ' + shown.length : null,
     pr.priceAdjusted ? pr.priceAdjusted + ' re-checked against other regions' : null
   ].filter(Boolean).join(' · ');
   return {
-    text: head + (home ? '\n\n' + home : '') + '\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',
-    rows: rows.length
+    text: head + '\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',
+    rows: rows.length,
+    home: homeButton(pr, target, rates)
   };
+}
+
+// One row: the home price on the left as a link, "Show More" on the right when
+// there is more to show. Telegram sizes buttons to their row, so two in one row
+// read as a pair of small chips rather than two full-width bars.
+function keyboard(out, token) {
+  const row = [];
+  if (out.home) row.push(out.home);
+  if (token) row.push({ text: 'Show More', callback_data: 'm:' + token });
+  return row.length ? { inline_keyboard: [row] } : undefined;
 }
 
 // ---------------------------------------------------------------- state
@@ -282,9 +294,7 @@ async function priceInto(chatId, messageId, query, cur) {
     chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
     disable_web_page_preview: true,
     text: out.text,
-    reply_markup: out.rows > TOP
-      ? { inline_keyboard: [[{ text: 'Show all ' + out.rows + ' regions', callback_data: 'm:' + token }]] }
-      : undefined
+    reply_markup: keyboard(out, out.rows > TOP ? token : null)
   });
 }
 
@@ -372,7 +382,8 @@ async function onCallback(cb) {
     const out = formatPrices(hit.pr, cur, rates, Object.keys(S.LOCALES).length);
     return tg('editMessageText', {
       chat_id: chatId, message_id: cb.message.message_id, parse_mode: 'HTML',
-      disable_web_page_preview: true, text: out.text
+      disable_web_page_preview: true, text: out.text,
+      reply_markup: keyboard(out, null)      // expanded: the home link stays
     });
   }
 }
@@ -442,5 +453,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, homeLine, homeRegion, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
 };
