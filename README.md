@@ -113,11 +113,26 @@ Without a token the bot simply does not start and the JSON API is unaffected.
 | a concept ID or store URL | priced directly |
 | `/cur USD` | changes the currency it converts into (default SGD) |
 
-Results are the **top 5 regions**, cheapest first in your currency, each price linking to the
-store page it came from, with strikethrough and discount on anything on sale. A **Show all 20
-regions** button expands it, replaying the finished lookup from memory rather than pricing
-again. Regions the store redirected to a foreign currency are left out of the ranking, exactly
-as on the website.
+Results are the **top 5 regions**, cheapest first, two lines each:
+
+```
+🎮 Ghost of Yōtei
+Cheapest first, converted to SGD
+
+1. 🇺🇦 Ukraine  ·  S$47.27
+    UAH 1,649  ·  UAH 2,199  ·  -25%  ·  2 editions
+2. 🇮🇳 India  ·  S$50.38
+    ₹3,749  ·  ₹4,999  ·  -25%  ·  2 editions
+```
+
+The converted price closes the first line, since that is the number being compared; the store's
+own price sits underneath with its strikethrough, discount and edition count, and links to the
+page it came from. Countries are named rather than coded. Local prices print the disambiguated
+symbol — `NT$`, `UAH` — because twenty storefronts put several different dollars next to each
+other, while the converted column uses a compact unambiguous form (`S$`, `US$`) since the header
+already names the currency. A **Show all 20 regions** button expands the list, replaying the
+finished lookup from memory rather than pricing again. Regions the store redirected to a foreign
+currency stay out of the ranking, exactly as on the website.
 
 Because twenty storefronts take ten to forty seconds — and a cold Render dyno longer still —
 every lookup posts a `Looking up…` placeholder immediately and edits that same message when the

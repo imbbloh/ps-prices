@@ -974,12 +974,31 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     'bot: the price links to the store page it came from');
   check(shown5.text.includes('2 editions'), 'bot: extra editions are noted');
   check(!shown5.text.includes('🇹🇷'), 'bot: the redirected region is absent from the message');
+  check(shown5.text.includes('India') && shown5.text.includes('United States'),
+    'bot: rows name the country, not just its code');
+  check(/1\. 🇮🇳 India\s+·\s+S\$48\.78/.test(shown5.text.replace(/<[^>]+>/g, '')),
+    'bot: the converted price closes the first line, where it is compared',
+    '-> ' + shown5.text.replace(/<[^>]+>/g, '').split('\n')[3]);
+  check(shown5.text.split('\n').filter(l => l.trim()).length === 2 + 2 * 2 + 1,
+    'bot: two lines per region, plus a header and a footer');
+
+  // The narrow symbol for SGD is a bare "$", which is the ambiguity the whole
+  // column exists to resolve.
+  check(bot.converted('SGD', 47.28) === 'S$47.28' && bot.converted('USD', 69.99) === 'US$69.99' &&
+        bot.converted('TWD', 1412) === 'NT$1,412',
+    'bot: the converted column never prints a bare dollar sign',
+    '-> ' + bot.converted('SGD', 47.28));
+  // Intl separates a code from its number with a non-breaking space.
+  const nb = t => t.replace(/\u00a0/g, ' ');
+  check(nb(bot.money('TWD', 1412)) === 'NT$1,412' && nb(bot.money('UAH', 1649)) === 'UAH 1,649',
+    'bot: local prices keep the disambiguated symbol their store uses',
+    '-> ' + bot.money('TWD', 1412));
 
   const none = bot.formatPrices({ title: 'X', priced: 0, total: 20, results: [] }, 'SGD', rates, 5);
   check(none.rows === 0 && /No region/.test(none.text), 'bot: a game with no prices says so');
 
   const noFx = bot.formatPrices(sample, 'SGD', null, 5);
-  check(noFx.text.includes('local prices only'),
+  check(/local prices only/i.test(noFx.text),
     'bot: without rates the local prices still show, as on the website');
 
   // /start and /cur need no network at all.

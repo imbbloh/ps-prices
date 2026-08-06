@@ -89,14 +89,44 @@ async function getFx() {
 const convert = (price, from, to, rates) =>
   (rates && rates[from] && rates[to]) ? (price / rates[from]) * rates[to] : null;
 
-function money(cur, n) {
+// Local prices use the disambiguated symbol, because twenty storefronts put
+// several dollars and several kroner next to each other and a bare "$" would be
+// a lie in half of them -- TWD prints NT$, UAH prints UAH. The converted column
+// uses the narrow symbol instead: it repeats on every row, the header already
+// names the currency, and "S$47.28" reads better than "SGD 47.28" twenty times.
+function money(cur, n, narrow) {
   try {
     return new Intl.NumberFormat('en', {
       style: 'currency', currency: cur,
+      currencyDisplay: narrow ? 'narrowSymbol' : 'symbol',
       maximumFractionDigits: n >= 1000 ? 0 : 2
     }).format(n);
   } catch (e) { return cur + ' ' + n; }
 }
+
+// The narrow symbol for SGD is a bare "$", which is exactly the ambiguity the
+// disambiguated form exists to avoid -- and this is the column every row is
+// compared on. These are the compact-but-unambiguous forms people actually
+// write; anything not listed falls back to the narrow symbol.
+const COMPACT = { SGD: 'S$', USD: 'US$', AUD: 'A$', CAD: 'C$', NZD: 'NZ$', HKD: 'HK$', TWD: 'NT$' };
+function converted(cur, n) {
+  const p = COMPACT[cur];
+  if (!p) return money(cur, n, true);
+  const digits = n >= 1000 ? 0 : 2;
+  return p + new Intl.NumberFormat('en', {
+    minimumFractionDigits: digits, maximumFractionDigits: digits
+  }).format(n);
+}
+
+// Region codes are for the URL bar. A list of places to buy something should
+// name the places.
+const REGION_NAMES = {
+  US: 'United States', UA: 'Ukraine', IN: 'India', JP: 'Japan', BR: 'Brazil',
+  TR: 'Turkey', ID: 'Indonesia', MY: 'Malaysia', TW: 'Taiwan', HK: 'Hong Kong',
+  KR: 'South Korea', ZA: 'South Africa', PL: 'Poland', NO: 'Norway',
+  CA: 'Canada', AU: 'Australia', MX: 'Mexico', GB: 'United Kingdom',
+  DE: 'Germany', SG: 'Singapore'
+};
 
 // US -> 🇺🇸. Telegram draws these itself on every platform, so unlike the
 // website -- where Chrome on Windows has no glyphs and needs image flags --
@@ -140,16 +170,23 @@ function rankRows(results, target, rates) {
     .sort((a, b) => (a.conv == null) - (b.conv == null) || (a.conv - b.conv));
 }
 
+// Two lines per region rather than one long one. Everything used to run
+// together on a single row that wrapped mid-price on a phone; splitting it puts
+// the number being compared -- the converted price -- at the end of a short
+// first line, and the store's own price with its discount underneath.
 function line(x, target, i) {
+  const place = REGION_NAMES[x.region] || x.region;
+  const conv = x.conv != null ? converted(target, x.conv) : '—';
+  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + esc(place) +
+               '  ·  ' + esc(conv) + '</b>';
+
   const local = money(x.currency, x.price);
-  const conv = x.conv != null ? ' ≈ ' + money(target, x.conv) : '';
-  const was = x.original != null ? ' <s>' + esc(money(x.currency, x.original)) + '</s>' : '';
-  const off = x.discount ? ' ' + esc(x.discount) : '';
-  const eds = x.editions && x.editions.length > 1 ? ' · ' + x.editions.length + ' editions' : '';
-  const en = x.english === false ? ' · no EN' : '';
-  const head = String(i + 1).padStart(2) + '. ' + flag(x.region) + ' ' + x.region;
-  const price = x.url ? '<a href="' + esc(x.url) + '">' + esc(local) + '</a>' : esc(local);
-  return head + '  ' + price + esc(conv) + was + off + esc(eds + en);
+  const bits = [x.url ? '<a href="' + esc(x.url) + '">' + esc(local) + '</a>' : esc(local)];
+  if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
+  if (x.discount) bits.push(esc(x.discount));
+  if (x.editions && x.editions.length > 1) bits.push(x.editions.length + ' editions');
+  if (x.english === false) bits.push('no English');
+  return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
 }
 
 function formatPrices(pr, target, rates, limit) {
@@ -159,13 +196,16 @@ function formatPrices(pr, target, rates, limit) {
   }
   const shown = rows.slice(0, limit);
   const body = shown.map((x, i) => line(x, target, i)).join('\n');
+  const head = '🎮 <b>' + esc(pr.title) + '</b>\n<i>' +
+    esc(rates ? 'Cheapest first, converted to ' + target
+              : 'Local prices only — no live exchange rates') + '</i>';
   const foot = [
-    pr.priced + '/' + pr.total + ' regions priced',
-    rates ? 'in ' + target : 'local prices only, no live rates',
+    pr.priced + ' of ' + pr.total + ' regions priced',
+    shown.length < rows.length ? 'showing ' + shown.length : null,
     pr.priceAdjusted ? pr.priceAdjusted + ' re-checked against other regions' : null
   ].filter(Boolean).join(' · ');
   return {
-    text: '<b>' + esc(pr.title) + '</b>\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',
+    text: head + '\n\n' + body + '\n\n<i>' + esc(foot) + '</i>',
     rows: rows.length
   };
 }
@@ -371,5 +411,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, flag, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, remember, recent, target, tg, hasToken: () => !!TOKEN
 };
