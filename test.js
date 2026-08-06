@@ -889,6 +889,29 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     'catalogue: the longest matching name wins');
   setCatalog(null);
 
+  // The circular require that took the bot down in production, reproduced the
+  // way it actually happened: server.js requires bot.js, which requires
+  // server.js straight back. Whichever loads first, both must work. The suite
+  // loads server.js first and so never saw it; a child process pins both orders.
+  const child = require('child_process');
+  const loadOrder = order => {
+    const reqs = order.map(f => "require('" + require('path').resolve(f) + "')");
+    return "const A=" + reqs[0] + ", B=" + reqs[1] + ";" +
+      "const S = A.setCatalog ? A : B, bot = A.suggest ? A : B;" +
+      "S.setCatalog(Object.assign(new Map([['ghost of yotei','10014719']])," +
+      "  {names:new Map([['10014719','Ghost of Yotei']])}));" +
+      "if (typeof S.getCatalog !== 'function') throw new Error('getCatalog missing');" +
+      "if (bot.suggest('ghost').length !== 1) throw new Error('suggest broken');" +
+      "console.log('ok');";
+  };
+  for (const order of [['bot.js', 'server.js'], ['server.js', 'bot.js']]) {
+    let out = '';
+    try { out = child.execFileSync(process.execPath, ['-e', loadOrder(order)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (e) { out = 'threw: ' + (e.stderr || e.message); }
+    check(/ok/.test(out), 'circular require survives loading ' + order[0] + ' first',
+      out.trim().split('\n').pop());
+  }
+
   // ---------------------------------------------------------------- the bot
   // Driven against a stub Telegram API, so every call the bot would make is
   // captured and nothing leaves the machine.

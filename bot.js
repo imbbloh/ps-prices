@@ -27,9 +27,13 @@
 // so the next lookup is not a cold start. Set TELEGRAM_WEBHOOK_SECRET to have
 // server.js accept updates on a secret path instead.
 
-const {
-  lookup, keyName, catalogPrefix, getCatalog, LOCALES
-} = require('./server.js');
+// Held as a module reference, not destructured. server.js requires this file
+// back, and a circular require returns whatever the other module has exported so
+// far -- which, at the moment it loads the bot, may be nothing at all.
+// Destructuring freezes those undefined values forever; reading through the
+// reference at call time picks up the real functions once both files finish
+// loading.
+const S = require('./server.js');
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const API = process.env.TELEGRAM_API || 'https://api.telegram.org';
@@ -105,8 +109,8 @@ const flag = r => String.fromCodePoint(...[...r.toUpperCase()]
 // The same prefix logic the website's dropdown uses: match on the loose key so
 // punctuation, trademark signs and case cannot get in the way.
 function suggest(q, limit = SUGGEST) {
-  const cat = getCatalog();
-  const k = keyName(q || '');
+  const cat = S.getCatalog();
+  const k = S.keyName(q || '');
   if (!cat || k.length < 2) return [];
   const starts = [], has = [];
   for (const [name, id] of cat) {
@@ -193,7 +197,7 @@ const HELP = [
 ].join('\n');
 
 async function priceInto(chatId, messageId, query, cur) {
-  const pr = await lookup(query);
+  const pr = await S.lookup(query);
   if (pr.error) {
     return tg('editMessageText', {
       chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
@@ -249,8 +253,8 @@ async function onText(chatId, text) {
 
   // One catalogue match, or a title specific enough to resolve on its own:
   // price it. Several matches: offer them, which is the dropdown in a chat.
-  const cat = getCatalog();
-  const exact = cat && (cat.get(keyName(t)) || catalogPrefix(t));
+  const cat = S.getCatalog();
+  const exact = cat && (cat.get(S.keyName(t)) || S.catalogPrefix(t));
   if (exact) return startLookup(chatId, t, t, cur);
 
   const hits = suggest(t);
@@ -279,7 +283,7 @@ async function onCallback(cb) {
   const cur = target.get(chatId) || 'SGD';
 
   if (data.startsWith('g:')) {                     // a title was picked
-    const cat = getCatalog();
+    const cat = S.getCatalog();
     const id = data.slice(2);
     const name = (cat && cat.names && cat.names.get(id)) || id;
     return tg('editMessageText', {
@@ -294,7 +298,7 @@ async function onCallback(cb) {
       return tg('sendMessage', { chat_id: chatId, text: 'That search has expired — send the title again.' });
     }
     const { rates } = await getFx();
-    const out = formatPrices(hit.pr, cur, rates, Object.keys(LOCALES).length);
+    const out = formatPrices(hit.pr, cur, rates, Object.keys(S.LOCALES).length);
     return tg('editMessageText', {
       chat_id: chatId, message_id: cb.message.message_id, parse_mode: 'HTML',
       disable_web_page_preview: true, text: out.text

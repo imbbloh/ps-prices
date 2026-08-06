@@ -1006,20 +1006,12 @@ const server = http.createServer(async (req, res) => {
 
 const TG_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 
-if (require.main === module) {
-  CATALOG = loadCatalog();
-  console.log(CATALOG ? 'catalogue: ' + CATALOG.size + ' games' : 'catalogue: none (falling back to store search)');
-  const PORT = process.env.PORT || 3000;
-  server.listen(PORT, () => console.log('PS-SGD backend on :' + PORT));
-
-  // The bot shares this process, so it shares the catalogue and the price
-  // cache. With no token it simply does not start, and the API is unaffected.
-  const bot = require('./bot.js');
-  if (!bot.hasToken()) console.log('telegram: no TELEGRAM_BOT_TOKEN, bot off');
-  else if (TG_SECRET) console.log('telegram: webhook mode on /tg/<secret>');
-  else { console.log('telegram: long polling'); bot.startPolling(); }
-}
-
+// Exported before the entry-point block below, and that order matters: that
+// block requires ./bot.js, which requires this file straight back. A circular
+// require hands back whatever module.exports holds at that instant, so with the
+// assignment last the bot received an empty object and every call into it failed
+// with "getCatalog is not a function" -- while the tests, which load this file
+// first, never saw it.
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
@@ -1029,3 +1021,19 @@ module.exports = {
   conceptIdsRanked, sameGame, resolveConcept, catalogPrefix,
   LOCALES, EXPECT, ALSO_OK, BASE
 };
+
+if (require.main === module) {
+  CATALOG = loadCatalog();
+  console.log(CATALOG ? 'catalogue: ' + CATALOG.size + ' games' : 'catalogue: none (falling back to store search)');
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, () => console.log('PS-SGD backend on :' + PORT));
+
+  // The bot shares this process, so it shares the catalogue and the price
+  // cache. With no token it simply does not start, and the API is unaffected.
+  // Loaded after listen() and after module.exports above, so the bot sees a
+  // fully populated module rather than a half-built one.
+  const bot = require('./bot.js');
+  if (!bot.hasToken()) console.log('telegram: no TELEGRAM_BOT_TOKEN, bot off');
+  else if (TG_SECRET) console.log('telegram: webhook mode on /tg/<secret>');
+  else { console.log('telegram: long polling'); bot.startPolling(); }
+}
