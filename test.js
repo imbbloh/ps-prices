@@ -978,16 +978,25 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     'bot: the price links to the store page it came from');
   check(!shown5.text.includes('editions'),
     'bot: the edition count is gone from the rows');
-  check(shown5.text.includes('✓ EN'),
-    'bot: a region that supports English says so');
+  check(!shown5.text.includes('EN'),
+    'bot: English support is not announced on every row');
   check(!shown5.text.includes('🇹🇷'), 'bot: the redirected region is absent from the message');
   check(shown5.text.includes('India') && shown5.text.includes('United States'),
     'bot: rows name the country, not just its code');
-  check(/1\. 🇮🇳 India\s+·\s+S\$48\.78/.test(shown5.text.replace(/<[^>]+>/g, '')),
-    'bot: the converted price closes the first line, where it is compared',
-    '-> ' + shown5.text.replace(/<[^>]+>/g, '').split('\n')[3]);
-  check(shown5.text.split('\n').filter(l => l.trim()).length === 2 + 2 * 2 + 1,
-    'bot: two lines per region, plus a header and a footer');
+  const plainRows = shown5.text.replace(/<[^>]+>/g, '').split('\n').filter(l => /^S\$/.test(l));
+  check(plainRows.length === 2,
+    'bot: every row opens with the converted price, so the column lines up',
+    '-> ' + JSON.stringify(plainRows));
+  check(/^S\$48\.78\s+·\s+🇮🇳 India$/.test(plainRows[0]),
+    'bot: price first, then flag and country', '-> ' + plainRows[0]);
+  check(!/^\d+\./m.test(shown5.text.replace(/<[^>]+>/g, '')),
+    'bot: no rank numbers, which would push the prices out of line');
+  check(shown5.text.split('\n').filter(l => l.trim()).length === 1 + 2 * 2 + 1,
+    'bot: two lines per region, plus a title and a footer');
+  check(!/Cheapest first/.test(shown5.text),
+    'bot: no subtitle restating what the ordering and the symbols already show');
+  check(/no live exchange rates/.test(bot.formatPrices(sample, 'SGD', null, 5).text),
+    'bot: except when there are no rates, which is not self-evident');
 
   // Alignment was tried and reverted: a flushed column needs a code span, and
   // Telegram allows no nesting inside one, which costs the strikethrough.
@@ -996,11 +1005,12 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   // English is three-valued, and unknown must not be reported as unsupported.
   const langs = bot.formatPrices({ ...sample, results: [
-    { ...sample.results[0], english: false }, { ...sample.results[1], english: null }
+    { ...sample.results[0], english: false }, { ...sample.results[1], english: null },
+    { ...sample.results[1], region: 'MY', english: true }
   ] }, 'SGD', rates, 5).text;
-  check(langs.includes('✗ EN'), 'bot: a region without English is marked');
-  check((langs.match(/EN/g) || []).length === 1,
-    'bot: an unknown language list is left blank rather than guessed at');
+  check((langs.match(/no English/g) || []).length === 1,
+    'bot: only the region without English is marked, and only once',
+    '-> ' + (langs.match(/no English/g) || []).length);
 
   // Both prices on a row point at the same page.
   check((shown5.text.match(/href="https:\/\/store\/in"/g) || []).length === 2,

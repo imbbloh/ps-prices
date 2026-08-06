@@ -193,31 +193,32 @@ function homeButton(pr, target, rates) {
   };
 }
 
-// Two lines per region rather than one long one. Everything used to run
-// together on a single row that wrapped mid-price on a phone; splitting it puts
-// the number being compared -- the converted price -- at the end of a short
-// first line, and the store's own price underneath.
+// Two lines per region. The converted price leads, and the rank number is gone:
+// with the price first, every row's figure starts at the same x and the column
+// reads down the message. It could not while a name of varying length came
+// first, and Telegram offers no alignment to fix that with -- only a monospace
+// span, which costs the links and the strikethrough. Ordering already says which
+// is cheapest, so the number was paying for itself twice.
 //
 // Both prices link to the same page, so whichever number the eye lands on is
 // the one that can be tapped.
 //
-// English support replaces the edition count. Which editions exist is a detail
-// of the listing; whether the game is playable in a language you read decides
-// whether the region is any use at all. Unknown stays blank -- the extractor
-// reports null when a storefront's spec table could not be read, and a blank is
-// honest where "no English" would be a guess.
-function line(x, target, i) {
+// Only the absence of English is marked. A tick on nineteen rows out of twenty
+// is noise; the one row where the game is not playable in a language you read is
+// the whole point. Unknown stays blank -- the extractor reports null when a
+// storefront's spec table could not be read, and a blank is honest where "no
+// English" would be a guess.
+function line(x, target) {
   const place = REGION_NAMES[x.region] || x.region;
   const link = t => x.url ? '<a href="' + esc(x.url) + '">' + esc(t) + '</a>' : esc(t);
-  const head = '<b>' + (i + 1) + '. ' + flag(x.region) + ' ' + esc(place) + '  ·  ' +
-               (x.conv != null ? link(converted(target, x.conv)) : '—') + '</b>';
+  const head = '<b>' + (x.conv != null ? link(converted(target, x.conv)) : '—') +
+               '</b>  ·  ' + flag(x.region) + ' <b>' + esc(place) + '</b>';
 
   const bits = [link(money(x.currency, x.price))];
   // The struck-through old price says "on sale" on its own; the percentage
   // beside it was a third number on a line that already had two.
   if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
-  if (x.english === true) bits.push('✓ EN');
-  else if (x.english === false) bits.push('✗ EN');
+  if (x.english === false) bits.push('no English');
   return head + '\n    <i>' + bits.join('  ·  ') + '</i>';
 }
 
@@ -227,10 +228,12 @@ function formatPrices(pr, target, rates, limit) {
     return { text: '<b>' + esc(pr.title) + '</b>\nNo region has a price for this one.', rows: 0 };
   }
   const shown = rows.slice(0, limit);
-  const body = shown.map((x, i) => line(x, target, i)).join('\n');
-  const head = '🎮 <b>' + esc(pr.title) + '</b>\n<i>' +
-    esc(rates ? 'Cheapest first, converted to ' + target
-              : 'Local prices only — no live exchange rates') + '</i>';
+  const body = shown.map(x => line(x, target)).join('\n');
+  // No subtitle when the rates are fine: the prices are already in order and
+  // each one carries its own currency symbol, so the line only restated what
+  // the list shows. It stays for the one case that is not self-evident.
+  const head = '🎮 <b>' + esc(pr.title) + '</b>' +
+    (rates ? '' : '\n<i>Local prices only — no live exchange rates</i>');
   const foot = [
     pr.priced + ' of ' + pr.total + ' regions priced',
     shown.length < rows.length ? 'showing ' + shown.length : null,

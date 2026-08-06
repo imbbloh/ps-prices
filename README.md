@@ -117,25 +117,29 @@ Results are the **top 5 regions**, cheapest first, two lines each:
 
 ```
 🎮 Ghost of Yōtei
-Cheapest first, converted to SGD
 
-1. 🇺🇦 Ukraine  ·  S$47.28
-    UAH 1,649  ·  U̶A̶H̶ ̶2̶,̶1̶9̶9̶  ·  ✓ EN
-2. 🇮🇳 India  ·  S$50.48
-    ₹3,749  ·  ₹̶4̶,̶9̶9̶9̶  ·  ✓ EN
+S$47.28  ·  🇺🇦 Ukraine
+    UAH 1,649  ·  U̶A̶H̶ ̶2̶,̶1̶9̶9̶
+S$50.48  ·  🇮🇳 India
+    ₹3,749  ·  ₹̶4̶,̶9̶9̶9̶
+S$50.99  ·  🇰🇷 South Korea
+    ₩56,658  ·  ₩̶7̶9̶,̶8̶0̶0̶  ·  no English
 
 20 of 20 regions priced · showing 5
         [ 🇸🇬 S$69.50 ]  [ Show More ]
 ```
 
-The converted price closes the first line, since that is the number being compared; the store's
-own price sits underneath, struck through when on sale. Both link to the page they came from, so
-whichever number the eye lands on can be tapped.
+**The converted price leads each row, and there is no rank number.** With the price first, every
+row's figure starts at the same x and the column reads straight down the message — it could not
+while a country name of varying length came first, and Telegram offers no alignment to fix that
+with, only a monospace span that costs the links and the strikethrough. The ordering already
+says which is cheapest, so the number was paying for itself twice. Both prices link to the page
+they came from, so whichever number the eye lands on can be tapped.
 
-**English support replaces the edition count.** Which editions exist is a detail of the listing;
-whether the game is playable in a language you read decides whether the region is any use at
-all. Unknown stays blank — the extractor reports `null` when a storefront's spec table could not
-be read, and a blank is honest where "no English" would be a guess.
+**Only the absence of English is marked.** A tick on nineteen rows out of twenty is noise; the
+one row where the game is not playable in a language you read is the whole point. Unknown stays
+blank — the extractor reports `null` when a storefront's spec table could not be read, and a
+blank is honest where "no English" would be a guess.
 
 **The home price is a button**, worked out from the currency being converted into (SGD → SG,
 EUR → DE). A list of cheap regions means nothing without knowing what the game costs at home,
@@ -145,12 +149,11 @@ their row, so two together read as small chips rather than full-width bars. Show
 all twenty by replaying the finished lookup from memory rather than pricing again, and keeps the
 home button.
 
-The discount percentage is deliberately absent: the strikethrough already says the game is on
-sale, and it was a third number on a line that had two. The rows are **not** right-aligned
-either, and cannot be — Telegram has no text alignment, so a fixed column means rendering the
-line as a code span, and Telegram allows no nesting inside one, which costs both the link and
-the strikethrough. Regions the store redirected to a foreign currency stay out of the ranking,
-exactly as on the website.
+There is no subtitle: the prices are already in order and each carries its own currency symbol,
+so a line saying so only restated the list. It appears for the one case that is not
+self-evident — no live exchange rates. The discount percentage is absent for the same reason:
+the strikethrough already says the game is on sale. Regions the store redirected to a foreign
+currency stay out of the ranking, exactly as on the website.
 
 Because twenty storefronts take ten to forty seconds — and a cold Render dyno longer still —
 every lookup posts a `Looking up…` placeholder immediately and edits that same message when the
