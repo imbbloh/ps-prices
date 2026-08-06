@@ -138,8 +138,9 @@ fixed-width context it offers, a code span, allows no nesting — so it would co
 and the strikethrough.)
 
 On the second line the old price comes first, struck through, with the price you actually pay
-after it — the order the stores themselves use. Both prices link to the page they came from, so
-whichever number the eye lands on can be tapped.
+after it — the order the stores themselves use. Neither is a link: the converted price above
+already opens the same page, and three links to one destination in two lines is three chances to
+mistap.
 
 **Only the absence of English is marked** (`🚫 ENG`). A tick on nineteen rows out of twenty is noise; the
 one row where the game is not playable in a language you read is the whole point. Unknown stays

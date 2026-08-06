@@ -974,8 +974,8 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     'bot: a discounted row shows the old price struck through');
   check(!shown5.text.includes('-33%'),
     'bot: and not the percentage as well, which the strikethrough already says');
-  check(/<a href="https:\/\/store\/in">₹2,999<\/a>/.test(shown5.text),
-    'bot: the price links to the store page it came from');
+  check(/<a href="https:\/\/store\/in">S\$48\.78<\/a>/.test(shown5.text),
+    'bot: and it is the converted price that carries it');
   check(!shown5.text.includes('editions'),
     'bot: the edition count is gone from the rows');
   check(!shown5.text.includes('ENG'),
@@ -1028,8 +1028,9 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     '-> ' + (langs.match(/🚫 ENG/g) || []).length);
 
   // Both prices on a row point at the same page.
-  check((shown5.text.match(/href="https:\/\/store\/in"/g) || []).length === 2,
-    'bot: the converted price is a link too, not just the local one');
+  check((shown5.text.match(/href="https:\/\/store\/in"/g) || []).length === 1,
+    'bot: one link per region -- the converted price; the store\'s own is plain text',
+    '-> ' + (shown5.text.match(/href="https:\/\/store\/in"/g) || []).length);
 
   // The narrow symbol for SGD is a bare "$", which is the ambiguity the whole
   // column exists to resolve.

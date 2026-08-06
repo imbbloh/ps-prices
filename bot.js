@@ -206,6 +206,8 @@ function homeButton(pr, target, rates) {
 //
 // On the second line the old price comes first, struck through, and the price
 // you actually pay follows it, which is the order the stores themselves use.
+// Neither is a link: the converted price above already opens the same page, and
+// three links to one destination in two lines is three chances to mistap.
 //
 // Only the absence of English is marked. A tick on nineteen rows out of twenty
 // is noise; the one row where the game is not playable in a language you read is
@@ -228,7 +230,7 @@ function line(x, target, i, total) {
 
   const bits = [];
   if (x.original != null) bits.push('<s>' + esc(money(x.currency, x.original)) + '</s>');
-  bits.push(link(money(x.currency, x.price)));
+  bits.push(esc(money(x.currency, x.price)));
   if (x.english === false) bits.push('🚫 ENG');
   return head + '\n    <i>' + bits.join('  ') + '</i>';
 }
