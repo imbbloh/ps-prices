@@ -987,14 +987,11 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   const plainRows = plain5.filter(l => /^[\d\u2007]+\./.test(l));
   check(plainRows.length === 2, 'bot: one ranked heading per region',
     '-> ' + JSON.stringify(plainRows));
-  check(/^1\.\s+🇮🇳 India$/.test(plainRows[0]),
-    'bot: rank and country on the first line', '-> ' + plainRows[0]);
-  check(plain5[plain5.indexOf(plainRows[0]) + 1].trim() === 'S$48.78',
-    'bot: the converted price gets a line of its own, which is what lines them up',
-    '-> ' + JSON.stringify(plain5[plain5.indexOf(plainRows[0]) + 1]));
-  check(/₹4,499\s+₹2,999$/.test(plain5[plain5.indexOf(plainRows[0]) + 2]),
+  check(/^1\.\s+🇮🇳 India\s+·\s+S\$48\.78$/.test(plainRows[0]),
+    'bot: rank, country and the converted price on the first line', '-> ' + plainRows[0]);
+  check(/₹4,499\s+₹2,999$/.test(plain5[plain5.indexOf(plainRows[0]) + 1]),
     'bot: then the old price struck through and the price actually paid',
-    '-> ' + plain5[plain5.indexOf(plainRows[0]) + 2].trim());
+    '-> ' + plain5[plain5.indexOf(plainRows[0]) + 1].trim());
 
   // The prices must still line up beneath each other once the ranking reaches
   // double figures, which ordinary spaces cannot do in a proportional font.
@@ -1008,8 +1005,8 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
   check(new Set(wide.map(l => l.indexOf('🇺🇸'))).size === 1,
     'bot: so country names start at the same offset too, rows 1 through 11',
     '-> ' + JSON.stringify([...new Set(wide.map(l => l.indexOf('🇺🇸')))]));
-  check(shown5.text.split('\n').filter(l => l.trim()).length === 1 + 3 * 2 + 2,
-    'bot: three lines per region, plus a title and a two-line footer',
+  check(shown5.text.split('\n').filter(l => l.trim()).length === 1 + 2 * 2 + 2,
+    'bot: two lines per region, plus a title and a two-line footer',
     '-> ' + shown5.text.split('\n').filter(l => l.trim()).length);
   check(!/Cheapest first/.test(shown5.text),
     'bot: no subtitle restating what the ordering and the symbols already show');

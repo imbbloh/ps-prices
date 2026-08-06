@@ -118,14 +118,11 @@ Results are the **top 5 regions**, cheapest first, two lines each:
 ```
 🎮 Ghost of Yōtei
 
-1.  🇺🇦 Ukraine
-    S$47.28
+1.  🇺🇦 Ukraine  ·  S$47.28
     U̶A̶H̶ ̶2̶,̶1̶9̶9̶  UAH 1,649
-2.  🇮🇳 India
-    S$50.48
+2.  🇮🇳 India  ·  S$50.48
     ₹̶4̶,̶9̶9̶9̶  ₹3,749
-3.  🇰🇷 South Korea
-    S$50.99
+3.  🇰🇷 South Korea  ·  S$50.99
     ₩̶7̶9̶,̶8̶0̶0̶  ₩56,658  🚫 ENG
 
 20/20 Regions Priced.
@@ -133,18 +130,16 @@ Results are the **top 5 regions**, cheapest first, two lines each:
         [ 🇸🇬 S$69.50 ]  [ Show More ]
 ```
 
-Three lines per region: which country, what it costs in your currency, and what the store itself
-charges. **Giving the converted price a line of its own is what makes the figures line up** —
-they start at the same indent whatever the country is called. Telegram has no text alignment,
-and the one fixed-width context it offers (a code span) allows no nesting, so it would cost both
-the links and the strikethrough.
-
-The rank is padded to a fixed width so country names line up too once the list passes row nine:
+Two lines per region: who and how much, then what the store itself charges. The rank is padded
+to a fixed width so country names start at the same indent even once the list passes row nine —
 `U+2007 FIGURE SPACE` is exactly as wide as a digit, which is what it exists for, and ordinary
-spaces cannot hold a column in a proportional font. On the last line the old price comes first,
-struck through, with the price you actually pay after it — the order the stores themselves use.
-Both prices link to the page they came from, so whichever number the eye lands on can be
-tapped.
+spaces cannot hold a column in a proportional font. (Telegram has no text alignment, and the one
+fixed-width context it offers, a code span, allows no nesting — so it would cost both the links
+and the strikethrough.)
+
+On the second line the old price comes first, struck through, with the price you actually pay
+after it — the order the stores themselves use. Both prices link to the page they came from, so
+whichever number the eye lands on can be tapped.
 
 **Only the absence of English is marked** (`🚫 ENG`). A tick on nineteen rows out of twenty is noise; the
 one row where the game is not playable in a language you read is the whole point. Unknown stays
