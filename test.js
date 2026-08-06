@@ -8,7 +8,7 @@ process.env.PS_BASE = 'http://localhost:' + PORT;
 
 const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
         isAccepted, isForeign, region, languages, keyName, loadCatalog,
-        releaseDate, parseDate, reconcile } = require('./server.js');
+        releaseDate, parseDate, reconcile, setCatalog } = require('./server.js');
 const http = require('http');
 
 let fails = 0;
@@ -887,6 +887,127 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
                            { names: new Map() }));
   check(catalogPrefix('Ghost of Tsushima DIRECTOR’S CUT') === '2',
     'catalogue: the longest matching name wins');
+  setCatalog(null);
+
+  // ---------------------------------------------------------------- the bot
+  // Driven against a stub Telegram API, so every call the bot would make is
+  // captured and nothing leaves the machine.
+  const calls = [];
+  const tsrv = http.createServer((req, res) => {
+    let b = '';
+    req.on('data', c => (b += c));
+    req.on('end', () => {
+      calls.push({ method: req.url.split('/').pop(), body: JSON.parse(b || '{}') });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, result: { message_id: 42 } }));
+    });
+  });
+  await new Promise(r => tsrv.listen(0, r));
+  process.env.TELEGRAM_API = 'http://localhost:' + tsrv.address().port;
+  process.env.TELEGRAM_BOT_TOKEN = 'test-token';
+  const bot = require('./bot.js');
+
+  setCatalog(Object.assign(new Map([
+    ['ghost of tsushima', '235227'],
+    ['ghost of yotei', '10014719'],
+    ['horizon forbidden west', '10000886']
+  ]), { names: new Map([['235227', 'Ghost of Tsushima'],
+                        ['10014719', 'Ghost of Yōtei'],
+                        ['10000886', 'Horizon Forbidden West']]) }));
+
+  check(bot.flag('US') === '🇺🇸' && bot.flag('JP') === '🇯🇵' && bot.flag('GB') === '🇬🇧',
+    'bot: region codes become flag emoji, which Telegram draws everywhere');
+  check(bot.convert(69.99, 'USD', 'SGD', { USD: 1, SGD: 1.35 }).toFixed(2) === '94.49',
+    'bot: conversion goes through the USD base rate');
+  check(bot.convert(69.99, 'USD', 'XXX', { USD: 1 }) === null,
+    'bot: a missing rate converts to nothing rather than a wrong number');
+
+  // The dropdown: prefix matches first, then anything containing the words.
+  check(bot.suggest('ghost of').length === 2, 'bot: a partial title suggests every match');
+  check(bot.suggest('ghost of')[0].name === 'Ghost of Tsushima',
+    'bot: suggestions carry the real title, not the match key');
+  check(bot.suggest('a').length === 0, 'bot: one character suggests nothing');
+  check(bot.suggest('zzzz').length === 0, 'bot: an unknown title suggests nothing');
+
+  // Ranking: cheapest first in the target currency, redirected regions dropped.
+  const sample = {
+    title: 'Ghost of Tsushima', priced: 3, total: 20, priceAdjusted: 0,
+    results: [
+      { region: 'US', currency: 'USD', price: 59.99, original: null, discount: null, editions: [{price:59.99},{price:69.99}], url: 'https://store/us', redirected: false, english: true },
+      { region: 'IN', currency: 'INR', price: 2999, original: 4499, discount: '-33%', editions: [], url: 'https://store/in', redirected: false, english: true },
+      { region: 'TR', currency: 'USD', price: 49.99, original: null, discount: null, editions: [], url: 'https://store/tr', redirected: true, english: true }
+    ]
+  };
+  const rates = { USD: 1, SGD: 1.35, INR: 83 };
+  const ranked = bot.rankRows(sample.results, 'SGD', rates);
+  check(ranked.length === 2, 'bot: a redirected region is not ranked');
+  check(ranked[0].region === 'IN', 'bot: cheapest in the target currency comes first',
+    '-> ' + ranked.map(r => r.region).join(','));
+
+  const shown5 = bot.formatPrices(sample, 'SGD', rates, 5);
+  check(shown5.text.includes('🇮🇳') && shown5.text.includes('<s>') && shown5.text.includes('-33%'),
+    'bot: a discounted row shows the old price struck through');
+  check(shown5.text.includes('href="https://store/in"'),
+    'bot: the price links to the store page it came from');
+  check(shown5.text.includes('2 editions'), 'bot: extra editions are noted');
+  check(!shown5.text.includes('🇹🇷'), 'bot: the redirected region is absent from the message');
+
+  const none = bot.formatPrices({ title: 'X', priced: 0, total: 20, results: [] }, 'SGD', rates, 5);
+  check(none.rows === 0 && /No region/.test(none.text), 'bot: a game with no prices says so');
+
+  const noFx = bot.formatPrices(sample, 'SGD', null, 5);
+  check(noFx.text.includes('local prices only'),
+    'bot: without rates the local prices still show, as on the website');
+
+  // /start and /cur need no network at all.
+  calls.length = 0;
+  await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/start' } });
+  check(calls[0].method === 'sendMessage' && /price check/i.test(calls[0].body.text),
+    'bot: /start explains itself');
+
+  calls.length = 0;
+  await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/cur usd' } });
+  check(/USD/.test(calls[0].body.text) && bot.target.get(7) === 'USD',
+    'bot: /cur switches the conversion currency for that chat');
+
+  // An ambiguous title offers buttons -- the dropdown, in a chat.
+  calls.length = 0;
+  await bot.handleUpdate({ message: { chat: { id: 7 }, text: 'ghost of' } });
+  const kb = calls[0].body.reply_markup.inline_keyboard;
+  check(kb.length === 2 && kb[0][0].callback_data === 'g:235227',
+    'bot: an ambiguous title offers each match as a button',
+    '-> ' + JSON.stringify(kb.map(r => r[0].text)));
+
+  // Show more replays a finished lookup without touching the store again.
+  calls.length = 0;
+  const token = bot.remember(sample);
+  await bot.handleUpdate({ callback_query: { id: '1', data: 'm:' + token,
+    message: { message_id: 42, chat: { id: 7 } } } });
+  const edit = calls.find(c => c.method === 'editMessageText');
+  check(edit && edit.body.text.includes('🇺🇸') && edit.body.text.includes('🇮🇳'),
+    'bot: "show all" re-renders every region from the cached result');
+
+  calls.length = 0;
+  await bot.handleUpdate({ callback_query: { id: '1', data: 'm:gone',
+    message: { message_id: 42, chat: { id: 7 } } } });
+  check(calls.some(c => /expired/.test(c.body.text || '')),
+    'bot: an expired "show all" says so rather than failing silently');
+
+  // Inline mode answers from memory only: no store request, no price lookup.
+  calls.length = 0;
+  await bot.handleUpdate({ inline_query: { id: '9', query: 'ghost of' } });
+  const inline = calls[0];
+  check(inline.method === 'answerInlineQuery' && inline.body.results.length === 2,
+    'bot: inline typing returns the catalogue matches');
+  check(inline.body.results[0].input_message_content.message_text === '/p 235227',
+    'bot: picking an inline result sends the concept id, not the title');
+
+  // A malformed update must never take the bot down.
+  await bot.handleUpdate({});
+  await bot.handleUpdate({ message: {} });
+  check(true, 'bot: an update it does not understand is ignored quietly');
+
+  tsrv.close();
   setCatalog(null);
 
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));

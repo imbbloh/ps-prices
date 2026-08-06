@@ -986,21 +986,45 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Telegram webhook, when one is configured. The path carries a secret so an
+  // unsolicited POST cannot feed the bot updates.
+  if (TG_SECRET && req.method === 'POST' && url.pathname === '/tg/' + TG_SECRET) {
+    let body = '';
+    req.on('data', c => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      res.writeHead(200); res.end('ok');            // answer first, work after:
+      try {                                         // Telegram retries slow ones
+        require('./bot.js').handleUpdate(JSON.parse(body));
+      } catch (e) { console.error('webhook: ' + e.message); }
+    });
+    return;
+  }
+
   res.setHeader('Content-Type', 'text/plain');
   res.end('PS-SGD backend is running. Try /prices?title=007%20First%20Light');
 });
+
+const TG_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 
 if (require.main === module) {
   CATALOG = loadCatalog();
   console.log(CATALOG ? 'catalogue: ' + CATALOG.size + ' games' : 'catalogue: none (falling back to store search)');
   const PORT = process.env.PORT || 3000;
   server.listen(PORT, () => console.log('PS-SGD backend on :' + PORT));
+
+  // The bot shares this process, so it shares the catalogue and the price
+  // cache. With no token it simply does not start, and the API is unaffected.
+  const bot = require('./bot.js');
+  if (!bot.hasToken()) console.log('telegram: no TELEGRAM_BOT_TOKEN, bot off');
+  else if (TG_SECRET) console.log('telegram: webhook mode on /tg/<secret>');
+  else { console.log('telegram: long polling'); bot.startPolling(); }
 }
 
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
-  keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, priceBlocks, cheapest,
+  keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, getCatalog: () => CATALOG,
+  priceBlocks, cheapest,
   releaseDate, parseDate, isoReleaseDate, reconcile, gqlCtas, storeLocale,
   conceptIdsRanked, sameGame, resolveConcept, catalogPrefix,
   LOCALES, EXPECT, ALSO_OK, BASE

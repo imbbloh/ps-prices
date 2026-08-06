@@ -90,6 +90,52 @@ all it still shows every store's local price rather than an empty table.
 
 ---
 
+## 4. Telegram bot (optional)
+
+The bot runs inside the same Render service and shares `server.js` outright — the catalogue,
+the resolver, the price extractor, the cross-region reconciliation — so a fix to prices is a fix
+in both places and there is no second copy to drift.
+
+1. Message [@BotFather](https://t.me/BotFather) → `/newbot`, and copy the token it gives you.
+2. Still in BotFather: `/setinline` → pick your bot → send a placeholder like `game title`.
+   This is what turns on the live dropdown; without it inline typing does nothing.
+3. In Render → your service → **Environment**, add `TELEGRAM_BOT_TOKEN` = the token, then
+   redeploy. The log line `telegram: long polling` means it is live.
+
+Without a token the bot simply does not start and the JSON API is unaffected.
+
+**Using it**
+
+| | |
+|---|---|
+| `@yourbot ghost of` | in **any** chat — Telegram shows a live list of matching titles as you type. This is the website's dropdown; it answers from the in-memory catalogue, so it is instant. |
+| a title, sent to the bot | one match is priced straight away; several are offered as buttons |
+| a concept ID or store URL | priced directly |
+| `/cur USD` | changes the currency it converts into (default SGD) |
+
+Results are the **top 5 regions**, cheapest first in your currency, each price linking to the
+store page it came from, with strikethrough and discount on anything on sale. A **Show all 20
+regions** button expands it, replaying the finished lookup from memory rather than pricing
+again. Regions the store redirected to a foreign currency are left out of the ranking, exactly
+as on the website.
+
+Because twenty storefronts take ten to forty seconds — and a cold Render dyno longer still —
+every lookup posts a `Looking up…` placeholder immediately and edits that same message when the
+prices land, rather than leaving the chat silent.
+
+**Webhook instead of polling.** Long polling is the default: it needs no public URL, and the
+open request keeps the free dyno awake, which also spares the next searcher a cold start. To use
+a webhook instead, set `TELEGRAM_WEBHOOK_SECRET` to a random string and point Telegram at
+`https://<your-service>/tg/<that secret>`:
+
+```
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<service>/tg/<secret>"
+```
+
+The secret is in the path so an unsolicited POST cannot feed the bot updates.
+
+---
+
 ## Customising
 
 - **Diagnosing missing regions:** `node debug.js "<title | store URL | conceptId>" [REGION...]`
