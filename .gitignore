@@ -2,3 +2,7 @@ node_modules/
 *.log
 *.pid
 .DS_Store
+
+# stub-server fixtures written by test runs
+auth.json
+rec.json
