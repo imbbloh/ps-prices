@@ -155,6 +155,14 @@ their row, so two together read as small chips rather than full-width bars. Show
 all twenty by replaying the finished lookup from memory rather than pricing again, and keeps the
 home button.
 
+**The cover art sits above the message**, taken from whichever storefront page answered first —
+JSON-LD carries the product image and `og:image` is the fallback, so it costs no extra request.
+It is a link preview rather than a photo message on purpose: a photo's caption is capped at 1024
+characters, the expanded twenty-region list runs well past that, and a caption cannot later be
+replaced with longer text — so **Show More** would have had nowhere to put its result. A preview
+keeps the message a message: unlimited length, editable in place, picture above the text. A game
+with no artwork simply gets none.
+
 The footer is a count with the **edition tally** under it. Nearly every region lists the same
 editions, so one number covers the lot: the count the most regions agree on. Where a storefront
 differs — an extra bundle sold only in Korea, say — it is named rather than averaged away, since

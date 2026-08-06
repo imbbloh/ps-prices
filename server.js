@@ -247,6 +247,27 @@ function cheapest(cands) {
   return (paid.length ? paid : usable).reduce((a, b) => (b.price < a.price ? b : a));
 }
 
+// The game's cover art. JSON-LD carries the product image, and og:image is what
+// the page hands to anything that unfurls a link -- either is the artwork, and
+// between them every storefront answers. Taken from pages already being fetched
+// for prices, so it costs no extra request.
+//
+// Only absolute https URLs: the value is handed to Telegram to fetch, and a
+// relative or http one would simply fail there with nothing to explain it.
+function coverImage(h) {
+  const from = [
+    /"image"\s*:\s*"([^"]+)"/,
+    /<meta[^>]+property="og:image"[^>]+content="([^"]+)"/i,
+    /<meta[^>]+content="([^"]+)"[^>]+property="og:image"/i
+  ];
+  for (const re of from) {
+    const m = h.match(re);
+    const url = m && m[1].replace(/&amp;/g, '&');
+    if (url && /^https:\/\//.test(url)) return url;
+  }
+  return null;
+}
+
 // Returns the price a shopper actually pays today for the cheapest edition.
 // When that edition is discounted, `price` is the sale price and `original` is
 // what it was struck through from.
@@ -346,7 +367,7 @@ function grab(h) {
     }));
 
   return {
-    price: pick.price, cur, name: name0[0] || null,
+    price: pick.price, cur, name: name0[0] || null, image: coverImage(h),
     original: pick.original != null && pick.original > pick.price ? pick.original : null,
     discount: pick.original != null && pick.original > pick.price ? discount : null,
     editions,                                        // all game entries, cheapest first
@@ -726,8 +747,9 @@ async function region(pid, cid, loc, title) {
       }
     }
   }
-  return { price: null, cur: null, name: null, original: null, discount: null, english: null,
-           screenLanguages: null, voiceLanguages: null, editions: [], via: null, productId: null, url: null };
+  return { price: null, cur: null, name: null, image: null, original: null, discount: null,
+           english: null, screenLanguages: null, voiceLanguages: null, editions: [],
+           via: null, productId: null, url: null };
 }
 
 // The store's own page does not parse HTML to price itself: it calls this
@@ -891,10 +913,11 @@ async function lookup(query) {
   const keys = Object.keys(LOCALES);
   const found = await pool(keys, CONCURRENCY, rk => region(pid, cid, LOCALES[rk], title));
 
-  let gameName = null;
+  let gameName = null, gameImage = null;
   const results = keys.map((rk, i) => {
     const r = found[i];
     if (r.name && !gameName) gameName = r.name;
+    if (r.image && !gameImage) gameImage = r.image;
     return {
       region: rk,
       currency: r.cur,
@@ -924,6 +947,7 @@ async function lookup(query) {
     title: catName || gameName || title || query,
     productId: pid,
     conceptId: cid || null,
+    image: gameImage,              // cover art, off whichever page answered first
     resolvedBy,                    // 'catalog' | 'search' | 'conceptId' | 'productId'
     priced: reconciled.filter(r => r.price != null).length,
     total: results.length,
@@ -1015,6 +1039,7 @@ const TG_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
 module.exports = {
   parseNum, grab, region, lookup, pool, productIds, conceptId, conceptIds,
   parseQuery, acceptLang, getText, priceAt, isAccepted, isForeign, languages, textLines,
+  coverImage,
   keyName, loadCatalog, setCatalog: m => { CATALOG = m; }, getCatalog: () => CATALOG,
   priceBlocks, cheapest,
   releaseDate, parseDate, isoReleaseDate, reconcile, gqlCtas, storeLocale,

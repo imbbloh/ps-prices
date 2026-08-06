@@ -297,6 +297,21 @@ function keyboard(out, token) {
   return row.length ? { inline_keyboard: [row] } : undefined;
 }
 
+// The cover art, shown as a link preview rather than a photo message.
+//
+// sendPhoto would put the artwork on top, but a photo's caption is capped at
+// 1024 characters and the expanded twenty-region list runs well past that --
+// and a caption cannot be swapped for longer text later, so pressing Show More
+// would have nowhere to put the result. A preview keeps the message a message:
+// unlimited length, editable in place, with the picture above the text.
+//
+// show_above_text puts it where a header belongs; prefer_large_media asks for
+// the full-width rendering instead of a thumbnail. Clients too old for either
+// fall back to a plain preview, and a game with no artwork gets none at all.
+const preview = image => image
+  ? { url: image, prefer_large_media: true, show_above_text: true }
+  : { is_disabled: true };
+
 // ---------------------------------------------------------------- state
 
 // Two small in-memory maps. Losing either on restart costs a user one repeated
@@ -336,7 +351,7 @@ async function priceInto(chatId, messageId, query, cur) {
   const token = remember(pr);
   return tg('editMessageText', {
     chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
-    disable_web_page_preview: true,
+    link_preview_options: preview(pr.image),
     text: out.text,
     reply_markup: keyboard(out, out.rows > TOP ? token : null)
   });
@@ -426,7 +441,7 @@ async function onCallback(cb) {
     const out = formatPrices(hit.pr, cur, rates, Object.keys(S.LOCALES).length);
     return tg('editMessageText', {
       chat_id: chatId, message_id: cb.message.message_id, parse_mode: 'HTML',
-      disable_web_page_preview: true, text: out.text,
+      link_preview_options: preview(hit.pr.image), text: out.text,
       reply_markup: keyboard(out, null)      // expanded: the home link stays
     });
   }
@@ -497,5 +512,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, rankLabel, editionSummary, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, rankLabel, editionSummary, preview, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
 };

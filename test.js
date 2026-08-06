@@ -8,7 +8,7 @@ process.env.PS_BASE = 'http://localhost:' + PORT;
 
 const { parseNum, grab, pool, productIds, conceptId, conceptIds, parseQuery, acceptLang,
         isAccepted, isForeign, region, languages, keyName, loadCatalog,
-        releaseDate, parseDate, reconcile, setCatalog } = require('./server.js');
+        releaseDate, parseDate, reconcile, setCatalog, coverImage } = require('./server.js');
 const http = require('http');
 
 let fails = 0;
@@ -1219,6 +1219,29 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   tsrv.close();
   setCatalog(null);
+
+  // Cover art. Read off pages already fetched for prices, so it costs no
+  // request, and shown as a link preview rather than a photo message.
+  const IMG = 'https://image.api.playstation.com/vulcan/ap/rnd/x.png';
+  check(coverImage('<script type="application/ld+json">{"image":"' + IMG + '"}</script>') === IMG,
+    'coverImage: JSON-LD carries the product image');
+  check(coverImage('<meta property="og:image" content="' + IMG + '?w=440">') === IMG + '?w=440',
+    'coverImage: og:image is the fallback every storefront answers with');
+  check(coverImage('<meta content="' + IMG + '" property="og:image">') === IMG,
+    'coverImage: attribute order does not matter');
+  check(coverImage('"image":"' + IMG + '?a=1&amp;b=2"') === IMG + '?a=1&b=2',
+    'coverImage: an escaped query string is unescaped, or the fetch would 404');
+  check(coverImage('"image":"/vulcan/relative.png"') === null,
+    'coverImage: a relative URL is no use to Telegram, so it is not offered');
+  check(coverImage('"image":"http://insecure/x.png"') === null,
+    'coverImage: nor an insecure one');
+  check(coverImage('<html>no art here</html>') === null, 'coverImage: and none is null');
+
+  check(JSON.stringify(bot.preview(IMG)) ===
+        JSON.stringify({ url: IMG, prefer_large_media: true, show_above_text: true }),
+    'bot: the cover is a preview above the text, at full width');
+  check(bot.preview(null).is_disabled === true,
+    'bot: a game with no artwork gets no preview rather than an empty one');
 
   console.log('\n' + (fails === 0 ? 'All checks passed.' : fails + ' check(s) FAILED.'));
   process.exit(fails === 0 ? 0 : 1);
