@@ -302,8 +302,11 @@ The secret is in the path so an unsolicited POST cannot feed the bot updates.
   Excel renders `™` and `「」` rather than mojibake. The JSON stays the source of truth: the app
   reads it, and `--csv` re-derives the CSV from it at any time.
 
-  **Popularity** comes from the grid's own default order — unfiltered, offset 0 returns Fortnite,
-  so position in that walk *is* the store's ranking rather than anything computed here. `--rank`
+  **Popularity** comes from the grid's own default order, which the store's Sort menu shows is
+  **Best Selling** — so position in an unfiltered walk *is* the best-sellers ranking rather than
+  anything computed here. The menu also offers Most Downloaded, a second ranking this could
+  record once the sort enum is known; `--rank` prints the `sortedBy` and `sortingOptions` the API
+  reports, so the vocabulary ends up on record instead of guessed at. `--rank`
   records it for the first few hundred games in five requests; past that the order is a long tail
   nobody sorted deliberately, so those stay unranked rather than being ranked last. Stale ranks
   are cleared each run, so a game that drops out of the top loses its rank instead of keeping it

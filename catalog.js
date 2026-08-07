@@ -185,9 +185,11 @@ function nodeDate(c) {
 
 // Popularity, as far as the API exposes it.
 //
-// The grid's default order is the browse page's own -- unfiltered, offset 0
-// returns Fortnite -- so position in that walk is the store's ranking, not
-// something computed here. It is recorded rather than the whole catalogue
+// The grid's default order is the browse page's own, and the store's Sort menu
+// shows Best Selling selected by default -- so position in an unfiltered walk is
+// the best-sellers ranking, not something computed here. The menu also offers
+// Most Downloaded, which is a second ranking this could record once the sort
+// enum is known; rankWalk prints the vocabulary the API reports so it can be. It is recorded rather than the whole catalogue
 // ordered by it, because only the first few hundred are meaningful: past that
 // the order is a long tail nobody sorted deliberately.
 //
@@ -196,11 +198,20 @@ function nodeDate(c) {
 async function rankWalk(known, limit) {
   for (const r of known.values()) delete r.rank;
   const today = new Date().toISOString().slice(0, 10);
-  let offset = 0, rank = 0;
+  let offset = 0, rank = 0, announced = false;
   while (rank < limit) {
     let g;
     try { g = await grid(offset, SIZE, []); }
     catch (e) { console.log('  ranking @' + offset + ': ' + e.message); break; }
+    // The response names the sort it applied and lists the others. Printed once
+    // so the enum values are on record rather than guessed at: the store's own
+    // menu offers Best Selling and Most Downloaded, and a second ranking is one
+    // --sort away as soon as their values are known.
+    if (!announced) {
+      announced = true;
+      console.log('  sortedBy: ' + JSON.stringify(g.sortedBy || null));
+      console.log('  sortingOptions: ' + JSON.stringify(g.sortingOptions || null));
+    }
     const items = g.concepts || [];
     if (!items.length) break;
     for (const c of items) {
