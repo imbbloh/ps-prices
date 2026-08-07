@@ -922,9 +922,12 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     let b = '';
     req.on('data', c => (b += c));
     req.on('end', () => {
-      calls.push({ method: req.url.split('/').pop(), body: JSON.parse(b || '{}') });
+      const method = req.url.split('/').pop();
+      calls.push({ method, body: JSON.parse(b || '{}') });
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, result: { message_id: 42 } }));
+      res.end(JSON.stringify({ ok: true, result: method === 'getMe'
+        ? { id: 1, is_bot: true, username: 'ps_prices_bot' }
+        : { message_id: 42 } }));
     });
   });
   await new Promise(r => tsrv.listen(0, r));
@@ -1247,14 +1250,32 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   calls.length = 0;
   await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/top' } });
-  check(/Most popular/.test(calls[0].body.text) && /Fortnite/.test(calls[0].body.text),
+  const topMsg = calls.find(c => c.method === 'sendMessage').body;
+  check(/Best selling/.test(topMsg.text) && /Fortnite/.test(topMsg.text),
     'bot: /top answers in one message');
-  check(calls[0].body.reply_markup.inline_keyboard[0][0].callback_data === 'g:1',
-    'bot: and each entry is a button that prices it');
+  check(!topMsg.reply_markup,
+    'bot: as a list, not a stack of twenty full-width buttons');
+  check(/<a href="https:\/\/t\.me\/[^"]*\?start=1"><b>Fortnite<\/b><\/a>/.test(topMsg.text),
+    'bot: each title is a deep link back into this chat, so tapping it prices the game',
+    '-> ' + (topMsg.text.match(/<a href="[^"]+"/) || [])[0]);
+  check(topMsg.link_preview_options.is_disabled === true,
+    'bot: and no preview, which twenty links would otherwise invite');
+
+  // A title that cannot be linked is still listed, rather than broken.
+  check(bot.priceLink({ conceptId: '1', name: 'Fortnite' }, '') === '<b>Fortnite</b>',
+    'bot: with no username resolved the title is plain text, not a dead link');
+
+  // Tapping one comes back as /start with the concept id.
+  calls.length = 0;
+  await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/start 235227' } });
+  check(/Looking up/.test((calls[0] || {}).body.text || ''),
+    'bot: /start with a concept id prices it instead of printing help',
+    '-> ' + JSON.stringify((calls[0] || {}).body.text));
 
   calls.length = 0;
   await bot.handleUpdate({ message: { chat: { id: 7 }, text: '/new' } });
-  check(/last 30 days/.test(calls[0].body.text) && !/Fortnite/.test(calls[0].body.text),
+  const newMsg = calls.find(c => c.method === 'sendMessage').body;
+  check(/last 30 days/.test(newMsg.text) && !/Fortnite/.test(newMsg.text),
     'bot: /new lists only the recent releases');
 
   tsrv.close();

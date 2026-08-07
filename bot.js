@@ -42,6 +42,7 @@ const FX_URL = process.env.FX_URL || 'https://open.er-api.com/v6/latest/USD';
 const TOP = 5;                       // regions shown before "Show more"
 const SUGGEST = 8;                   // buttons offered when a title is ambiguous
 const INLINE = 20;                   // Telegram's own cap on inline results
+const TOP_N = 20;                    // entries in /top and /new
 const FX_TTL = 6 * 3600 * 1000;      // the rates are daily; six hours is plenty
 const CACHE_TTL = 10 * 60 * 1000;    // a "Show more" press long after the fact
 
@@ -328,6 +329,28 @@ function remember(pr) {
 
 // ---------------------------------------------------------------- flows
 
+// A title that prices itself when tapped.
+//
+// The obvious link -- the store page -- is the one thing a price bot should not
+// send you to. A t.me deep link opens this chat with the concept id as the
+// /start payload, so tapping a title does what tapping a button used to. The
+// username is asked for once and remembered; if that call ever fails the title
+// falls back to plain text rather than a broken link.
+let botName = null;
+async function botHandle() {
+  if (botName === null) {
+    const me = await tg('getMe', {});
+    botName = (me && me.username) || '';
+  }
+  return botName;
+}
+
+function priceLink(r, handle) {
+  const label = '<b>' + esc(r.name) + '</b>';
+  return handle ? '<a href="https://t.me/' + handle + '?start=' + r.conceptId + '">' + label + '</a>'
+                : label;
+}
+
 // The catalogue carries the store's own popularity order for the first few
 // hundred games; everything past that is unranked and stays out of these lists.
 function topList(limit, days) {
@@ -387,6 +410,13 @@ async function onText(chatId, text) {
   const cur = target.get(chatId) || 'SGD';
   const t = text.trim();
 
+  // "/start 235227" is what a tapped title in /top sends back.
+  const started = t.match(/^\/start\s+(\d{5,})$/);
+  if (started) {
+    const cat0 = S.getCatalog();
+    const known = cat0 && cat0.names && cat0.names.get(started[1]);
+    return startLookup(chatId, started[1], known || started[1], cur);
+  }
   if (/^\/(start|help)/.test(t)) {
     return tg('sendMessage', { chat_id: chatId, parse_mode: 'HTML', text: HELP });
   }
@@ -395,23 +425,23 @@ async function onText(chatId, text) {
   // a price lookup.
   if (/^\/(top|new)\b/i.test(t)) {
     const days = /^\/new/i.test(t) ? 30 : 0;
-    const n = Math.min(parseInt((t.match(/\s(\d+)/) || [])[1], 10) || 10, 25);
+    const n = Math.min(parseInt((t.match(/\s(\d+)/) || [])[1], 10) || TOP_N, 40);
     const list = topList(n, days);
     if (!list.length) {
       return tg('sendMessage', { chat_id: chatId,
         text: 'No popularity data yet — the catalogue needs a ranking run.' });
     }
-    const rows = list.map((r, i) => rankLabel(i, list.length) + '  <b>' + esc(r.name) + '</b>' +
+    // A list of twenty will not fit in buttons -- Telegram would stack twenty
+    // full-width bars under the message -- so each title is a link instead.
+    // Resolved once, outside the loop: the username is the same for every row.
+    const bot = await botHandle();
+    const rows = list.map((r, i) => rankLabel(i, list.length) + '  ' + priceLink(r, bot) +
       (days && r.releaseDate ? '  <i>' + esc(r.releaseDate) + '</i>' : ''));
     return tg('sendMessage', {
       chat_id: chatId, parse_mode: 'HTML',
-      text: '<b>' + (days ? 'Popular, released in the last 30 days' : 'Most popular right now') +
-            '</b>\n\n' + rows.join('\n') +
-            '\n\n<i>Send a title, or tap one, to price it.</i>',
-      reply_markup: { inline_keyboard: list.slice(0, 8).map(r => [{
-        text: r.name.length > 60 ? r.name.slice(0, 57) + '…' : r.name,
-        callback_data: 'g:' + r.conceptId
-      }]) }
+      link_preview_options: { is_disabled: true },
+      text: '<b>' + (days ? 'Best selling, released in the last 30 days' : 'Best selling right now') +
+            '</b>\n\n' + rows.join('\n') + '\n\n<i>Tap a title to price it.</i>'
     });
   }
 
@@ -552,5 +582,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, rankLabel, editionSummary, preview, topList, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, rankLabel, editionSummary, preview, topList, priceLink, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
 };

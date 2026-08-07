@@ -318,8 +318,12 @@ The secret is in the path so an unsolicited POST cannot feed the bot updates.
   node catalog.js --top 10 --days 30   # popular among the last 30 days of releases
   ```
 
-  In the bot, the same two lists are `/top` and `/new`. Both read the catalogue in memory, so
-  they answer instantly — no store request — and each entry is a button that prices it.
+  In the bot, the same two lists are `/top` and `/new` — twenty entries each, read from the
+  catalogue in memory so they answer instantly with no store request. Each title is a `t.me`
+  deep link carrying the concept id as a `/start` payload, so **tapping one prices it**: twenty
+  buttons would stack twenty full-width bars under the message, and a link to the store page is
+  the one place a price bot should not send you. The username is asked for once and remembered;
+  if that ever fails the title falls back to plain text rather than a dead link.
 
   Filters are `"<facet>:<value>"` strings, verified against the counts the API reports for its
   own facets. Two findings shape the design:
