@@ -1255,15 +1255,19 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     'bot: /top answers in one message');
   check(!topMsg.reply_markup,
     'bot: as a list, not a stack of twenty full-width buttons');
-  check(/<a href="https:\/\/t\.me\/[^"]*\?start=1"><b>Fortnite<\/b><\/a>/.test(topMsg.text),
-    'bot: each title is a deep link back into this chat, so tapping it prices the game',
+  check(/<a href="https:\/\/store\.playstation\.com\/[a-z-]+\/concept\/1"><b>Fortnite<\/b><\/a>/.test(topMsg.text),
+    'bot: each title links to the game\'s store page',
     '-> ' + (topMsg.text.match(/<a href="[^"]+"/) || [])[0]);
   check(topMsg.link_preview_options.is_disabled === true,
     'bot: and no preview, which twenty links would otherwise invite');
 
-  // A title that cannot be linked is still listed, rather than broken.
-  check(bot.priceLink({ conceptId: '1', name: 'Fortnite' }, '') === '<b>Fortnite</b>',
-    'bot: with no username resolved the title is plain text, not a dead link');
+  // The storefront follows the chat's currency: USD was set above, so en-us.
+  check(bot.storeLink({ conceptId: '1', name: 'Fortnite' }, 'en-sg') ===
+        '<a href="https://store.playstation.com/en-sg/concept/1"><b>Fortnite</b></a>',
+    'bot: the link opens the storefront matching the chat currency',
+    '-> ' + bot.storeLink({ conceptId: '1', name: 'Fortnite' }, 'en-sg'));
+  check(/store\.playstation\.com\/en-us\//.test(bot.storeLink({ conceptId: '1', name: 'X' }, null)),
+    'bot: and falls back to the US store the catalogue is built from');
 
   // Tapping one comes back as /start with the concept id.
   calls.length = 0;

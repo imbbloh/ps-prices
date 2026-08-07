@@ -329,26 +329,14 @@ function remember(pr) {
 
 // ---------------------------------------------------------------- flows
 
-// A title that prices itself when tapped.
+// A title that opens the game's store page.
 //
-// The obvious link -- the store page -- is the one thing a price bot should not
-// send you to. A t.me deep link opens this chat with the concept id as the
-// /start payload, so tapping a title does what tapping a button used to. The
-// username is asked for once and remembered; if that call ever fails the title
-// falls back to plain text rather than a broken link.
-let botName = null;
-async function botHandle() {
-  if (botName === null) {
-    const me = await tg('getMe', {});
-    botName = (me && me.username) || '';
-  }
-  return botName;
-}
-
-function priceLink(r, handle) {
-  const label = '<b>' + esc(r.name) + '</b>';
-  return handle ? '<a href="https://t.me/' + handle + '?start=' + r.conceptId + '">' + label + '</a>'
-                : label;
+// The storefront follows the chat's currency rather than always being en-us:
+// someone converting into SGD wants the Singapore page, and the concept id is
+// global so the same id works on every storefront.
+function storeLink(r, loc) {
+  return '<a href="https://store.playstation.com/' + (loc || 'en-us') + '/concept/' + r.conceptId +
+         '"><b>' + esc(r.name) + '</b></a>';
 }
 
 // The catalogue carries the store's own popularity order for the first few
@@ -433,15 +421,15 @@ async function onText(chatId, text) {
     }
     // A list of twenty will not fit in buttons -- Telegram would stack twenty
     // full-width bars under the message -- so each title is a link instead.
-    // Resolved once, outside the loop: the username is the same for every row.
-    const bot = await botHandle();
-    const rows = list.map((r, i) => rankLabel(i, list.length) + '  ' + priceLink(r, bot) +
+    const loc = S.LOCALES[homeRegion(cur)] || 'en-us';
+    const rows = list.map((r, i) => rankLabel(i, list.length) + '  ' + storeLink(r, loc) +
       (days && r.releaseDate ? '  <i>' + esc(r.releaseDate) + '</i>' : ''));
     return tg('sendMessage', {
       chat_id: chatId, parse_mode: 'HTML',
       link_preview_options: { is_disabled: true },
       text: '<b>' + (days ? 'Best selling, released in the last 30 days' : 'Best selling right now') +
-            '</b>\n\n' + rows.join('\n') + '\n\n<i>Tap a title to price it.</i>'
+            '</b>\n\n' + rows.join('\n') +
+            '\n\n<i>Tap a title for its store page, or send it to me to price it.</i>'
     });
   }
 
@@ -582,5 +570,5 @@ async function startPolling() {
 
 module.exports = {
   handleUpdate, startPolling, suggest, rankRows, formatPrices,
-  convert, money, converted, flag, rankLabel, editionSummary, preview, topList, priceLink, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
+  convert, money, converted, flag, rankLabel, editionSummary, preview, topList, storeLink, homeButton, homeRegion, keyboard, remember, recent, target, tg, hasToken: () => !!TOKEN
 };

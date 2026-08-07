@@ -319,11 +319,10 @@ The secret is in the path so an unsolicited POST cannot feed the bot updates.
   ```
 
   In the bot, the same two lists are `/top` and `/new` — twenty entries each, read from the
-  catalogue in memory so they answer instantly with no store request. Each title is a `t.me`
-  deep link carrying the concept id as a `/start` payload, so **tapping one prices it**: twenty
-  buttons would stack twenty full-width bars under the message, and a link to the store page is
-  the one place a price bot should not send you. The username is asked for once and remembered;
-  if that ever fails the title falls back to plain text rather than a dead link.
+  catalogue in memory so they answer instantly with no store request. Each title links to the
+  game's store page, on the storefront matching the chat's currency (SGD → `en-sg`), since a
+  concept id is global. Titles are links rather than buttons because twenty buttons would stack
+  twenty full-width bars under the message.
 
   Filters are `"<facet>:<value>"` strings, verified against the counts the API reports for its
   own facets. Two findings shape the design:
