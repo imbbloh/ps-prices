@@ -128,6 +128,7 @@ function save(file, known) {
     const o = { conceptId: r.conceptId, name: r.name };
     if (r.releaseDate) o.releaseDate = r.releaseDate;
     if (r.rank) o.rank = r.rank;
+    if (r.free) o.free = true;
     if (r.firstSeen) o.firstSeen = r.firstSeen;
     return '  ' + JSON.stringify(o);
   }).join(',\n');
@@ -142,7 +143,7 @@ const csvPath = file => file.replace(/(\.json)?$/i, '') + '.csv';
 // RFC 4180. Titles routinely carry commas, quotes and colons -- "Marvel's
 // Spider-Man 2", 「EA SPORTS FC 27」 -- so every field is quoted and inner
 // quotes are doubled, which is what Excel, Numbers and Sheets all expect.
-const CSV_COLUMNS = ['conceptId', 'name', 'releaseDate', 'rank', 'firstSeen', 'url'];
+const CSV_COLUMNS = ['conceptId', 'name', 'releaseDate', 'rank', 'free', 'firstSeen', 'url'];
 const csvCell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
 function csvRow(r) {
   return CSV_COLUMNS.map(c => csvCell(
@@ -230,6 +231,46 @@ async function rankWalk(known, limit) {
   return rank;
 }
 
+// Which games cost nothing.
+//
+// The catalogue deliberately stores no prices -- they change daily and would
+// rewrite every row -- but free-to-play is not a price, it is a property of the
+// game, and it barely changes. Fortnite, Roblox and Apex sit at the top of a
+// best-sellers chart forever; a list of games worth comparing prices for should
+// not be led by three games with no price.
+//
+// Taken from the price facet's own Free band rather than inferred, and marked
+// on the rows so it costs one pass, not a lookup per game.
+async function markFree(known) {
+  const probe = await grid(0, 1, [], []);
+  const facet = (probe.facetOptions || []).find(f => f.name === 'webBasePrice');
+  const band = ((facet && facet.values) || [])
+    .find(v => v.key === '0-0' || /^free$/i.test(String(v.displayName)));
+  if (!band) { console.log('  no Free band in the price facet — nothing marked'); return 0; }
+
+  for (const r of known.values()) delete r.free;
+  const ids = new Set();
+  let offset = 0;
+  while (offset < Math.min(band.count, HARD_CAP)) {
+    let g;
+    try { g = await grid(offset, SIZE, ['webBasePrice:' + band.key]); }
+    catch (e) { console.log('  free @' + offset + ': ' + e.message); break; }
+    const items = g.concepts || [];
+    if (!items.length) break;
+    for (const c of items) if (c && c.id) ids.add(c.id);
+    offset += SIZE;
+    if (g.pageInfo && g.pageInfo.isLast) break;
+    await sleep(DELAY);
+  }
+  let marked = 0;
+  for (const id of ids) {
+    const r = known.get(id);
+    if (r) { r.free = true; marked++; }
+  }
+  console.log('  ' + ids.size + ' free games listed, ' + marked + ' matched in the catalogue');
+  return marked;
+}
+
 // What the ranking is for: the popular list, and the popular-lately list.
 // "Lately" is by release date, so it answers "what is new and doing well"
 // rather than "what was added to the store recently".
@@ -238,7 +279,7 @@ function topGames(rows, limit, days) {
     ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
     : null;
   return rows
-    .filter(r => r.rank && (!cutoff || (r.releaseDate && r.releaseDate >= cutoff)))
+    .filter(r => r.rank && !r.free && (!cutoff || (r.releaseDate && r.releaseDate >= cutoff)))
     .sort((a, b) => a.rank - b.rank)
     .slice(0, limit);
 }
@@ -450,6 +491,7 @@ if (require.main !== module) return;
     const known = load(OUT);
     if (!known.size) return console.log('no catalogue at ' + OUT);
     await rankWalk(known, parseInt(val('--rank', '500'), 10) || 500);
+    await markFree(known);
     console.log(save(OUT, known) + ' games -> ' + OUT);
     return;
   }

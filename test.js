@@ -583,15 +583,15 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
 
   // catalog.csv: the same rows as catalog.json, in a form a spreadsheet opens.
   const { csvRow, csvPath, CSV_COLUMNS } = require('./catalog.js');
-  check(CSV_COLUMNS.join(',') === 'conceptId,name,releaseDate,rank,firstSeen,url',
+  check(CSV_COLUMNS.join(',') === 'conceptId,name,releaseDate,rank,free,firstSeen,url',
     'csv: column order is stable');
   check(csvRow({ conceptId: '10014719', name: 'Beast of Reincarnation', releaseDate: '2025-10-02', rank: 7, firstSeen: '2026-08-04' })
-      === '"10014719","Beast of Reincarnation","2025-10-02","7","2026-08-04","https://store.playstation.com/en-us/concept/10014719"',
+      === '"10014719","Beast of Reincarnation","2025-10-02","7","","2026-08-04","https://store.playstation.com/en-us/concept/10014719"',
     'csv: a plain row carries its rank and a working store link');
   check(csvRow({ conceptId: '1', name: '"Buy The Game, I Have a Gun" -Sheesh-Man' })
-      === '"1","""Buy The Game, I Have a Gun"" -Sheesh-Man","","","","https://store.playstation.com/en-us/concept/1"',
+      === '"1","""Buy The Game, I Have a Gun"" -Sheesh-Man","","","","","https://store.playstation.com/en-us/concept/1"',
     'csv: a real title with commas and quotes is escaped RFC 4180 style');
-  check(csvRow({ conceptId: '1', name: null }) === '"1","","","","","https://store.playstation.com/en-us/concept/1"',
+  check(csvRow({ conceptId: '1', name: null }) === '"1","","","","","","https://store.playstation.com/en-us/concept/1"',
     'csv: a missing field is empty, not the string null');
   check(csvPath('catalog.json') === 'catalog.csv' && csvPath('/tmp/x.json') === '/tmp/x.csv' && csvPath('out') === 'out.csv',
     'csv: the csv sits beside whatever --out named');
@@ -1238,6 +1238,17 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     '-> ' + topGames(catRows, 10, 30).map(r => r.name).join(','));
   check(!topGames(catRows, 10, 0).some(r => r.name === 'Unranked'),
     'top: an unranked game is not silently ranked last');
+
+  // Free-to-play sits at the top of a best-sellers chart permanently and has no
+  // price to compare, so it is left out of both lists.
+  const withFree = [{ conceptId: '9', name: 'Fortnite', rank: 1, free: true,
+                      releaseDate: new Date().toISOString().slice(0, 10) },
+                    ...catRows.filter(r => r.name !== 'Fortnite')];
+  check(!topGames(withFree, 10, 0).some(r => r.free),
+    'top: free games are excluded',
+    '-> ' + topGames(withFree, 3, 0).map(r => r.name).join(','));
+  check(!topGames(withFree, 10, 30).some(r => r.free),
+    'top: and from the recent-releases list too');
   check(topGames([], 10, 0).length === 0, 'top: no ranking, no list');
 
   // The bot reads the same rows out of the loaded catalogue.
@@ -1245,6 +1256,13 @@ check(isForeign('US', null) === false,   'missing currency is not labelled forei
     { names: new Map(catRows.map(r => [r.conceptId, r.name])), rows: catRows }));
   check(bot.topList(2, 0).map(r => r.name).join(',') === 'Fortnite,Ghost of Yotei',
     'bot: /top reads the ranking straight from memory, with no store request');
+  const freeRows = catRows.map(r => r.name === 'Fortnite' ? { ...r, free: true } : r);
+  setCatalog(Object.assign(new Map(), { names: new Map(), rows: freeRows }));
+  check(!bot.topList(10, 0).some(r => r.free) && bot.topList(1, 0)[0].name === 'Ghost of Yotei',
+    'bot: /top skips the free games too, so the list opens with something priced',
+    '-> ' + bot.topList(1, 0)[0].name);
+  setCatalog(Object.assign(new Map(catRows.map(r => [r.name.toLowerCase(), r.conceptId])),
+    { names: new Map(catRows.map(r => [r.conceptId, r.name])), rows: catRows }));
   check(bot.topList(10, 30).map(r => r.name).join(',') === 'Ghost of Yotei,New Indie',
     'bot: /new is popularity among the last thirty days of releases');
 

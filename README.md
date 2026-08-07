@@ -312,8 +312,16 @@ The secret is in the path so an unsolicited POST cannot feed the bot updates.
   are cleared each run, so a game that drops out of the top loses its rank instead of keeping it
   forever.
 
+  **Free-to-play games are left out of both lists.** The catalogue stores no prices — they change
+  daily and would rewrite every row — but free-to-play is not a price, it is a property of the
+  game, and it barely changes. Fortnite, Roblox and Apex sit at the top of a best-sellers chart
+  permanently, and a list of games worth comparing prices across regions should not be led by
+  three games with no price. `--rank` reads the price facet's own **Free** band and marks those
+  rows, so it is one pass rather than a lookup per game, and taken from the store rather than
+  inferred.
+
   ```
-  node catalog.js --rank            # record the ranking (~5 requests)
+  node catalog.js --rank            # record the ranking + mark the free games
   node catalog.js --top 10          # the most popular
   node catalog.js --top 10 --days 30   # popular among the last 30 days of releases
   ```

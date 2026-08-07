@@ -347,8 +347,10 @@ function topList(limit, days) {
   const cutoff = days
     ? new Date(Date.now() - days * 86400000).toISOString().slice(0, 10)
     : null;
+  // Free-to-play games are excluded: they top a best-sellers chart permanently
+  // and there is no price to compare across regions.
   return cat.rows
-    .filter(r => r.rank && (!cutoff || (r.releaseDate && r.releaseDate >= cutoff)))
+    .filter(r => r.rank && !r.free && (!cutoff || (r.releaseDate && r.releaseDate >= cutoff)))
     .sort((a, b) => a.rank - b.rank)
     .slice(0, limit);
 }
